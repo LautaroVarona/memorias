@@ -1,0 +1,32 @@
+{
+  "normal": [
+    { "id": "actividad", "titulo": "Actividad de la empresa", "variantes": ["actividad de la empresa", "actividad de la sociedad", "objeto social"] },
+    { "id": "bases_presentacion", "titulo": "Bases de presentación", "variantes": ["bases de presentación", "bases de preparación", "normas de registro"] },
+    { "id": "normas_registro", "titulo": "Normas de registro y valoración", "variantes": ["normas de registro y valoración", "políticas contables", "criterios de valoración"] },
+    { "id": "ingresos_gastos", "titulo": "Ingresos y gastos", "variantes": ["ingresos y gastos", "reconocimiento de ingresos"] },
+    { "id": "impuesto", "titulo": "Impuesto sobre sociedades", "variantes": ["impuesto sobre sociedades", "impuesto sobre beneficios", "gasto por impuesto"] },
+    { "id": "activos", "titulo": "Activos", "variantes": ["activo no corriente", "activo corriente", "inmovilizado"] },
+    { "id": "pasivos", "titulo": "Pasivos", "variantes": ["pasivo no corriente", "pasivo corriente", "deudas"] },
+    { "id": "patrimonio", "titulo": "Patrimonio neto", "variantes": ["patrimonio neto", "fondos propios", "capital y reservas"] },
+    { "id": "provisiones", "titulo": "Provisiones y contingencias", "variantes": ["provisiones", "contingencias", "riesgos y contingencias"] },
+    { "id": "partes_vinculadas", "titulo": "Partes vinculadas", "variantes": ["partes vinculadas", "operaciones con partes vinculadas", "transacciones con vinculadas"] },
+    { "id": "personal", "titulo": "Personal", "variantes": ["personal", "gastos de personal", "plantilla"] },
+    { "id": "medios_ambiente", "titulo": "Medio ambiente", "variantes": ["medio ambiente", "sostenibilidad", "impacto ambiental"] },
+    { "id": "hechos_posteriores", "titulo": "Hechos posteriores", "variantes": ["hechos posteriores", "eventos posteriores al cierre"] },
+    { "id": "propuesta_aplicacion", "titulo": "Propuesta de aplicación del resultado", "variantes": ["propuesta de aplicación", "aplicación del resultado", "distribución del resultado"] }
+  ],
+  "abreviada": [
+    { "id": "actividad", "numero": 1, "titulo": "Actividad de la empresa", "variantes": ["actividad de la empresa", "objeto social"] },
+    { "id": "bases_presentacion", "numero": 2, "titulo": "Bases de presentación de las cuentas anuales", "variantes": ["bases de presentación", "bases de preparación"] },
+    { "id": "normas_registro", "numero": 3, "titulo": "Normas de registro y valoración", "variantes": ["normas de registro", "políticas contables"] },
+    { "id": "inmovilizado", "numero": 4, "titulo": "Inmovilizado material, intangible e inversiones inmobiliarias", "variantes": ["inmovilizado material", "inversiones inmobiliarias"] },
+    { "id": "activos_financieros", "numero": 5, "titulo": "Activos financieros", "variantes": ["activos financieros"] },
+    { "id": "pasivos_financieros", "numero": 6, "titulo": "Pasivos financieros", "variantes": ["pasivos financieros"] },
+    { "id": "fondos_propios", "numero": 7, "titulo": "Fondos propios", "variantes": ["fondos propios", "patrimonio neto"] },
+    { "id": "situacion_fiscal", "numero": 8, "titulo": "Situación fiscal", "variantes": ["situación fiscal", "impuesto sobre sociedades", "impuesto sobre beneficios"] },
+    { "id": "vinculadas", "numero": 9, "titulo": "Operaciones con partes vinculadas", "variantes": ["partes vinculadas", "operaciones vinculadas"] },
+    { "id": "otra_informacion", "numero": 10, "titulo": "Otra información", "variantes": ["otra información", "número medio de personas empleadas"] },
+    { "id": "pmp", "numero": 11, "titulo": "Información sobre el periodo medio de pago a proveedores", "variantes": ["periodo medio de pago", "deber de información"] }
+  ],
+  "umbralAbreviada": 4000000
+}

@@ -1,0 +1,20 @@
+{
+  "cuentasIS": ["630", "6300", "6301"],
+  "cuentasReservas": ["112", "113", "114", "115"],
+  "cuentasDiferenciasTemporarias": ["474", "475", "4740", "4750", "4745", "4755"],
+  "keywordsIncentivos": ["deducción", "bonificación", "incentivo fiscal", "régimen especial", "zona especial", "deducción i+d", "i+d+i", "amortización acelerada"],
+  "keywordsRiesgos": ["no existen riesgos", "sin riesgos", "no hay riesgos", "no se han identificado riesgos", "riesgo insignificante"],
+  "keywordsSinDeuda": ["sin deuda", "no mantiene deuda", "libre de deuda", "no existen pasivos financieros", "sin endeudamiento"],
+  "keywordsHolding": ["sociedad holding", "sociedad patrimonial", "participaciones en empresas", "tenencia de participaciones"],
+  "keywordsVinculadas": ["no existen operaciones vinculadas", "sin operaciones vinculadas", "no hay operaciones con partes vinculadas", "no se han realizado operaciones vinculadas"],
+  "keywordsProvisiones": ["no existen provisiones", "sin provisiones", "no hay provisiones", "no se han dotado provisiones"],
+  "keywordsCriterios": ["no hay cambios en criterios", "sin cambios en criterios", "no se han modificado criterios", "criterios contables no han variado"],
+  "keywordsActividad": ["actividad principal", "objeto social", "desarrollo de la actividad", "ingresos de explotación", "ventas netas", "cifra de negocios"],
+  "keywordsBasesNegativas": ["bases negativas", "bin", "base imponible negativa", "compensación de bases"],
+  "keywordsRecuperacionDT": ["baja probabilidad de recuperación", "no es probable su recuperación", "deterioro de activos por impuesto diferido"],
+  "keywordsContinuidad": ["empresa en funcionamiento", "principio de continuidad", "negocio en marcha", "continuidad de la explotación"],
+  "keywordsCambiosContables": ["cambio de criterio", "modificación de criterio", "cambios contables", "nuevo criterio contable"],
+  "keywordsIncentivosExistencia": ["deducción", "bonificación fiscal", "incentivo fiscal", "régimen especial", "deducción i+d", "amortización acelerada"],
+  "variacionInteranualUmbral": 0.30,
+  "toleranciaCuadre": 0.01
+}

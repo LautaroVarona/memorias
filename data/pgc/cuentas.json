@@ -1,0 +1,38 @@
+{
+  "grupos": {
+    "1": "patrimonio",
+    "2": "activo",
+    "3": "activo",
+    "4": "pasivo",
+    "5": "activo",
+    "6": "gasto",
+    "7": "ingreso",
+    "8": "gasto",
+    "9": "ingreso"
+  },
+  "subgruposActivos": ["20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "39", "43", "44", "46", "47", "48", "53", "54", "55", "56", "57", "58", "59"],
+  "subgruposPasivos": ["10", "11", "14", "15", "16", "17", "40", "41", "42", "45", "49", "52"],
+  "subgruposPatrimonio": ["10", "11", "12", "13", "14", "15", "16", "17", "18", "19"],
+  "cuentasEspeciales": {
+    "129": { "grupo": "patrimonio", "descripcion": "Resultado del ejercicio" },
+    "112": { "grupo": "patrimonio", "descripcion": "Reserva legal" },
+    "113": { "grupo": "patrimonio", "descripcion": "Reservas voluntarias" },
+    "630": { "grupo": "gasto", "descripcion": "Impuesto sobre beneficios" },
+    "474": { "grupo": "activo", "descripcion": "Activos por diferencias temporarias deducibles" },
+    "475": { "grupo": "pasivo", "descripcion": "Pasivos por diferencias temporarias imponibles" },
+    "240": { "grupo": "activo", "descripcion": "Participaciones LP empresas grupo" },
+    "241": { "grupo": "activo", "descripcion": "Participaciones LP empresas asociadas" },
+    "242": { "grupo": "activo", "descripcion": "Participaciones LP otras partes vinculadas" },
+    "250": { "grupo": "activo", "descripcion": "Inversiones financieras LP" },
+    "430": { "grupo": "activo", "descripcion": "Clientes" },
+    "400": { "grupo": "pasivo", "descripcion": "Proveedores" },
+    "600": { "grupo": "gasto", "descripcion": "Compras" },
+    "601": { "grupo": "gasto", "descripcion": "Compras de materias primas" },
+    "602": { "grupo": "gasto", "descripcion": "Compras otros aprovisionamientos" },
+    "700": { "grupo": "ingreso", "descripcion": "Ventas" },
+    "701": { "grupo": "ingreso", "descripcion": "Ventas productos terminados" },
+    "760": { "grupo": "ingreso", "descripcion": "Ingresos de participaciones" }
+  },
+  "activosFinancieros": ["54", "55", "56", "57", "58", "59", "250", "251", "252", "253", "254", "255", "257", "258", "259", "530", "531", "532", "533", "534", "535", "536", "537", "538", "539", "540", "541", "542", "543", "544", "545", "546", "547", "548", "549", "550", "551", "552", "553", "554", "555", "556", "557", "558", "559"],
+  "deuda": ["16", "17", "50", "51", "52", "520", "521", "522", "523", "524", "525", "526", "527", "528", "529"]
+}

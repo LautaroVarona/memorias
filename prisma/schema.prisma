@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Expediente {
+  id                 String   @id @default(cuid())
+  cliente            String
+  ejercicio          Int
+  ejercicioAnteriorId String?
+  ejercicioAnterior  Expediente?  @relation("EjercicioAnterior", fields: [ejercicioAnteriorId], references: [id], onDelete: SetNull)
+  ejerciciosSiguientes Expediente[] @relation("EjercicioAnterior")
+  tipoEmpresa        String?
+  scoreSnapshot      String?
+  estado             String   @default("borrador")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  archivos           Archivo[]
+  datosExtraidos     DatosExtraidos[]
+  validaciones       ValidacionResultado[]
+  reglasCustom       ReglaCustom[]
+}
+
+model Archivo {
+  id           String   @id @default(cuid())
+  expedienteId String
+  expediente   Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  tipo         String
+  nombre       String
+  ruta         String
+  metadata     String   @default("{}")
+  createdAt    DateTime @default(now())
+}
+
+model DatosExtraidos {
+  id           String   @id @default(cuid())
+  expedienteId String
+  expediente   Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  fuente       String
+  payload      String
+  createdAt    DateTime @default(now())
+}
+
+model ValidacionResultado {
+  id           String   @id @default(cuid())
+  expedienteId String
+  expediente   Expediente @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  ruleId       String
+  categoria    String
+  severidad    String
+  mensaje      String
+  title        String?
+  explanation  String?
+  normativa    String?
+  referencia   String?
+  evidencia    String   @default("{}")
+  sugerencia   String?
+  createdAt    DateTime @default(now())
+}
+
+model ReglaCustom {
+  id           String   @id @default(cuid())
+  nombre       String
+  expresion    String
+  severidad    String   @default("warning")
+  activa       Boolean  @default(true)
+  expedienteId String?
+  expediente   Expediente? @relation(fields: [expedienteId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+}

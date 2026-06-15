@@ -1,0 +1,44 @@
+{
+  "name": "memorias",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "dev:clean": "npx rimraf .next && next dev --port 3000",
+    "dev:reset": "powershell -ExecutionPolicy Bypass -File ./scripts/reset-dev.ps1",
+    "clean": "npx rimraf .next",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "test:examples": "tsx scripts/e2e-examples.ts",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.9.0",
+    "@react-pdf/renderer": "^4.3.0",
+    "mammoth": "^1.9.0",
+    "next": "^15.3.3",
+    "pdf-parse": "^1.1.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "word-extractor": "^1.0.4",
+    "xlsx": "^0.18.5",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.8",
+    "@types/node": "^22.15.29",
+    "@types/pdf-parse": "^1.1.4",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.5",
+    "eslint": "^9.28.0",
+    "eslint-config-next": "^15.3.3",
+    "prisma": "^6.9.0",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^4.1.8",
+    "tsx": "^4.22.4",
+    "typescript": "^5.8.3"
+  }
+}
