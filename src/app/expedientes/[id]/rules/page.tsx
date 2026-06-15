@@ -3,15 +3,13 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-
-interface ReglaCustom {
-  id: string;
-  nombre: string;
-  expresion: string;
-  severidad: string;
-  activa: boolean;
-  expedienteId: string | null;
-}
+import {
+  createRegla,
+  deleteRegla,
+  listReglas,
+  updateRegla,
+} from "@/lib/storage/expediente-store";
+import type { StoredReglaCustom } from "@/lib/storage/types";
 
 const DEFAULT_EXPRESSION = `{
   "field": "balance.activo.total",
@@ -23,15 +21,14 @@ const DEFAULT_EXPRESSION = `{
 
 export default function CustomRulesPage() {
   const { id } = useParams<{ id: string }>();
-  const [rules, setRules] = useState<ReglaCustom[]>([]);
+  const [rules, setRules] = useState<StoredReglaCustom[]>([]);
   const [nombre, setNombre] = useState("");
   const [expresion, setExpresion] = useState(DEFAULT_EXPRESSION);
   const [severidad, setSeveridad] = useState("warning");
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/rules?expedienteId=${id}`);
-    setRules(await res.json());
+    setRules(await listReglas(id));
   }, [id]);
 
   useEffect(() => {
@@ -49,35 +46,24 @@ export default function CustomRulesPage() {
       return;
     }
 
-    const res = await fetch("/api/rules", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nombre, expresion, severidad, expedienteId: id }),
-    });
-
-    if (!res.ok) {
-      const data = await res.json();
-      setError(data.error || "Error al crear regla");
-      return;
+    try {
+      await createRegla({ nombre, expresion, severidad, expedienteId: id });
+      setNombre("");
+      setExpresion(DEFAULT_EXPRESSION);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al crear regla");
     }
-
-    setNombre("");
-    setExpresion(DEFAULT_EXPRESSION);
-    load();
   }
 
-  async function toggleActiva(rule: ReglaCustom) {
-    await fetch(`/api/rules/${rule.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ activa: !rule.activa }),
-    });
-    load();
+  async function toggleActiva(rule: StoredReglaCustom) {
+    await updateRegla(rule.id, { activa: !rule.activa });
+    await load();
   }
 
   async function handleDelete(ruleId: string) {
-    await fetch(`/api/rules/${ruleId}`, { method: "DELETE" });
-    load();
+    await deleteRegla(ruleId);
+    await load();
   }
 
   return (

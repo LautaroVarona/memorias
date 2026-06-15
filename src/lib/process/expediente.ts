@@ -1,18 +1,17 @@
 import { readFile } from "fs/promises";
-import path from "path";
 import { buildCaseData } from "@/lib/case/build-case-data";
 import { clasificarEmpresa } from "@/lib/classifier";
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { classifyExcelFile, parseExcel } from "@/lib/parsers/excel/parser";
-import { detectarFormatoMemoria, parseMemoria } from "@/lib/parsers/memoria/parser";
+import { classifyUploadedFile } from "@/lib/process/classify-content";
+import { parseExcel } from "@/lib/parsers/excel/parser";
+import { parseMemoria } from "@/lib/parsers/memoria/parser";
 import { runFullValidation, summarizeResults } from "@/lib/rules/engine";
 import type {
   BalanceNormalizado,
   CuentaNormalizada,
   LibroCierre,
   MemoriaNormalizada,
-  TipoArchivo,
 } from "@/types/domain";
 
 const log = logger.child({ module: "process" });
@@ -30,27 +29,6 @@ function mergeArchivoMetadata(
     }
   }
   return JSON.stringify({ ...base, ...patch, clasificacion: "contenido" });
-}
-
-export async function classifyUploadedFile(
-  buffer: Buffer,
-  fileName: string
-): Promise<TipoArchivo> {
-  const ext = path.extname(fileName).toLowerCase();
-
-  // Las memorias del despacho llegan como .DOC pero pueden ser RTF, Word
-  // binario o incluso docx renombrado: se decide por contenido.
-  if ([".doc", ".docx", ".rtf"].includes(ext)) {
-    const formato = detectarFormatoMemoria(buffer);
-    if (formato === "pdf") return "memoria_pdf";
-    if (formato === null) throw new Error(`No se reconoce el formato del documento: ${fileName}`);
-    return "memoria_word";
-  }
-  if (ext === ".pdf") return "memoria_pdf";
-  if ([".xlsx", ".xls", ".xlsm"].includes(ext)) {
-    return classifyExcelFile(buffer, fileName);
-  }
-  throw new Error(`Tipo de archivo no soportado: ${ext}`);
 }
 
 export async function processExpediente(expedienteId: string): Promise<{

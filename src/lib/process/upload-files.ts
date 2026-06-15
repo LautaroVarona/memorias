@@ -1,20 +1,11 @@
-import path from "path";
 import { prisma } from "@/lib/db";
 import { saveUploadedWebFile } from "@/lib/files";
+import { classifyByExtension } from "@/lib/process/classify-extension";
 import { logger } from "@/lib/logger";
-import type { TipoArchivo } from "@/types/domain";
 
 const log = logger.child({ module: "upload-files" });
 
-/** Clasificación rápida por extensión — sin parsers pesados (se refinan al procesar). */
-export function classifyByExtension(fileName: string): TipoArchivo {
-  const ext = path.extname(fileName).toLowerCase();
-  if ([".doc", ".docx", ".rtf"].includes(ext)) return "memoria_word";
-  if (ext === ".pdf") return "memoria_pdf";
-  if (ext === ".xlsm") return "excel_cierre";
-  if ([".xlsx", ".xls"].includes(ext)) return "excel_balance";
-  throw new Error(`Tipo de archivo no soportado: ${ext || fileName}`);
-}
+export { classifyByExtension };
 
 export async function uploadFilesToExpediente(expedienteId: string, files: File[]) {
   const startedAt = Date.now();

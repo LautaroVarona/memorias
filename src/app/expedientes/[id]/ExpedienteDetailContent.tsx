@@ -6,35 +6,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ReviewDashboard } from "@/components/review/ReviewDashboard";
 import type { ValidacionView } from "@/components/review/types";
 import { Dropzone } from "@/components/upload/Dropzone";
-import { apiFetch } from "@/lib/api-client";
+import {
+  fetchExpedienteDetail,
+  removeExpediente,
+  runExpedienteProcess,
+  type ExpedienteDetail,
+} from "@/lib/expediente-client";
 import { clientLogger } from "@/lib/logger/client";
+import { downloadExcelReport, openHtmlReport } from "@/lib/reports/download";
 import { uploadToExpediente } from "@/lib/upload-client";
 
 const log = clientLogger.child({ module: "expediente-detail" });
-
-interface ExpedienteDetail {
-  id: string;
-  cliente: string;
-  ejercicio: number;
-  estado: string;
-  tipoEmpresa: string | null;
-  archivos: {
-    id: string;
-    nombre: string;
-    tipo: string;
-    metadata?: string;
-  }[];
-  validaciones: ValidacionView[];
-  resumen: { critical: number; warning: number; pass: number; total: number };
-  score?: {
-    score: number;
-    errores: number;
-    warnings: number;
-    estado: "ok" | "revisar" | "no_formulable" | "critico";
-    globalEstado?: "ok" | "revisar" | "no_formulable";
-    motivoGlobal?: string;
-  };
-}
 
 export function ExpedienteDetailContent() {
   const { id } = useParams<{ id: string }>();
@@ -58,8 +40,11 @@ export function ExpedienteDetailContent() {
     setLoading(true);
     setError("");
     try {
-      const result = await apiFetch<ExpedienteDetail>(`/api/expedientes/${id}`);
+      const result = await fetchExpedienteDetail(id);
       setData(result);
+      if (!result) {
+        setError("Expediente no encontrado");
+      }
     } catch (err) {
       setData(null);
       setError(err instanceof Error ? err.message : "No se pudo cargar el expediente");
@@ -77,17 +62,13 @@ export function ExpedienteDetailContent() {
     setError("");
     log.info("iniciando revisión manual", { expedienteId: id });
     try {
-      await apiFetch(`/api/expedientes/${id}/process`, { method: "POST" });
+      await runExpedienteProcess(id);
       log.info("revisión completada", { expedienteId: id });
       await load();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Error al procesar";
       log.error("revisión falló", { expedienteId: id, error: message });
-      setError(
-        message.includes("500") || message.includes("servidor")
-          ? `${message} Si acaba de subir archivos, espere a que termine la compilación del servidor y pulse «Revisar» de nuevo.`
-          : message
-      );
+      setError(message);
     } finally {
       setProcessing(false);
     }
@@ -132,7 +113,7 @@ export function ExpedienteDetailContent() {
     setDeleting(true);
     setError("");
     try {
-      await apiFetch(`/api/expedientes/${id}`, { method: "DELETE" });
+      await removeExpediente(id);
       router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al eliminar");
@@ -176,20 +157,20 @@ export function ExpedienteDetailContent() {
           >
             Reglas
           </Link>
-          <a
-            href={`/api/expedientes/${id}/report?format=html`}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
+            onClick={() => openHtmlReport(data)}
             className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
           >
             HTML
-          </a>
-          <a
-            href={`/api/expedientes/${id}/report?format=xlsx`}
+          </button>
+          <button
+            type="button"
+            onClick={() => void downloadExcelReport(data)}
             className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
           >
             Excel
-          </a>
+          </button>
           <button
             type="button"
             onClick={() => setShowUpload(!showUpload)}
@@ -230,6 +211,7 @@ export function ExpedienteDetailContent() {
       {showUpload && (
         <form onSubmit={handleUploadSubmit} className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
           <Dropzone onFilesSelected={setUploadFiles} disableInteraction={uploading} />
+          {uploadProgress && <p className="text-sm text-slate-500">{uploadProgress}</p>}
           <button
             type="submit"
             disabled={uploading || uploadFiles.length === 0}
@@ -246,7 +228,7 @@ export function ExpedienteDetailContent() {
           ejercicio={data.ejercicio}
           tipoEmpresa={data.tipoEmpresa}
           archivos={data.archivos}
-          validaciones={data.validaciones}
+          validaciones={data.validaciones as ValidacionView[]}
           score={data.score?.score}
           estado={data.score?.globalEstado ?? data.score?.estado}
           motivoGlobal={data.score?.motivoGlobal}

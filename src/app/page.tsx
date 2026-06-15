@@ -2,20 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api-client";
-
-interface Expediente {
-  id: string;
-  cliente: string;
-  ejercicio: number;
-  estado: string;
-  tipoEmpresa: string | null;
-  createdAt: string;
-  _count: { archivos: number; validaciones: number };
-}
+import { fetchExpedientes, removeExpediente } from "@/lib/expediente-client";
+import type { ExpedienteListItem } from "@/lib/storage/types";
 
 export default function HomePage() {
-  const [expedientes, setExpedientes] = useState<Expediente[]>([]);
+  const [expedientes, setExpedientes] = useState<ExpedienteListItem[]>([]);
   const [filtroCliente, setFiltroCliente] = useState("");
   const [filtroEjercicio, setFiltroEjercicio] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
@@ -25,11 +16,11 @@ export default function HomePage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filtroCliente) params.set("cliente", filtroCliente);
-      if (filtroEjercicio) params.set("ejercicio", filtroEjercicio);
-      if (filtroEstado) params.set("estado", filtroEstado);
-      const data = await apiFetch<Expediente[]>(`/api/expedientes?${params}`);
+      const data = await fetchExpedientes({
+        cliente: filtroCliente || undefined,
+        ejercicio: filtroEjercicio ? parseInt(filtroEjercicio, 10) : undefined,
+        estado: filtroEstado || undefined,
+      });
       setExpedientes(data);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Error al cargar expedientes");
@@ -42,7 +33,7 @@ export default function HomePage() {
     load();
   }, [load]);
 
-  async function handleDelete(e: Expediente) {
+  async function handleDelete(e: ExpedienteListItem) {
     const label = e.ejercicio > 0 ? `${e.cliente} — ${e.ejercicio}` : e.cliente;
     if (
       !window.confirm(
@@ -54,7 +45,7 @@ export default function HomePage() {
 
     setDeletingId(e.id);
     try {
-      await apiFetch(`/api/expedientes/${e.id}`, { method: "DELETE" });
+      await removeExpediente(e.id);
       setExpedientes((prev) => prev.filter((x) => x.id !== e.id));
     } catch (err) {
       alert(err instanceof Error ? err.message : "Error al eliminar");
@@ -89,6 +80,11 @@ export default function HomePage() {
         >
           Nuevo expediente
         </Link>
+      </div>
+
+      <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+        Los expedientes se guardan en este navegador. Cada empleado ve solo los suyos en su
+        equipo. Si se borran los datos del sitio, se pierden los expedientes.
       </div>
 
       <div className="flex flex-wrap gap-3">
