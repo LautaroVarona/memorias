@@ -4,7 +4,6 @@ import { computeCaseScore } from "@/lib/rules/scoring";
 import type { CaseData } from "@/types/case-data";
 import type { Evidence } from "@/types/case-data";
 import {
-  getArchivoBlob,
   getExpediente,
   listArchivos,
   listExpedientes,
@@ -15,8 +14,9 @@ import {
   updateExpediente,
   deleteExpediente,
 } from "@/lib/storage/expediente-store";
-import type { ExpedienteListItem, StoredArchivo } from "@/lib/storage/types";
+import type { ExpedienteListItem } from "@/lib/storage/types";
 import type { ProcessOutput } from "@/lib/process/expediente-core";
+import { processExpedienteRemote } from "@/lib/process/remote-process";
 
 export interface ExpedienteDetail {
   id: string;
@@ -170,17 +170,10 @@ export async function removeExpediente(id: string): Promise<void> {
   await deleteExpediente(id);
 }
 
-async function archivosToFiles(archivos: StoredArchivo[]): Promise<File[]> {
-  const files: File[] = [];
-  for (const archivo of archivos) {
-    const buffer = await getArchivoBlob(archivo.id);
-    if (!buffer) continue;
-    files.push(new File([buffer], archivo.nombre));
-  }
-  return files;
-}
-
-export async function runExpedienteProcess(expedienteId: string): Promise<ProcessOutput> {
+export async function runExpedienteProcess(
+  expedienteId: string,
+  onProgress?: (message: string) => void
+): Promise<ProcessOutput> {
   const expediente = await getExpediente(expedienteId);
   if (!expediente) throw new Error("Expediente no encontrado");
 
@@ -188,85 +181,61 @@ export async function runExpedienteProcess(expedienteId: string): Promise<Proces
   if (!archivos.length) throw new Error("No hay archivos para procesar");
 
   const reglas = await listReglas(expedienteId);
-  const files = await archivosToFiles(archivos);
 
-  const formData = new FormData();
-  const payload: {
-    expedienteId: string;
-    cliente: string;
-    ejercicio: number;
-    archivos: { id: string; nombre: string; tipo: string; metadata?: string }[];
-    reglasCustom: typeof reglas;
-    priorYear?: { ejercicio: number; archivos: { nombre: string; tipo: string }[] };
-  } = {
-    expedienteId,
-    cliente: expediente.cliente,
-    ejercicio: expediente.ejercicio,
-    archivos: archivos.map((a) => ({
-      id: a.id,
-      nombre: a.nombre,
-      tipo: a.tipo,
-      metadata: a.metadata,
-    })),
-    reglasCustom: reglas,
-  };
-
+  let priorYear: { ejercicio: number; archivos: Awaited<ReturnType<typeof listArchivos>> } | undefined;
   if (expediente.ejercicioAnteriorId) {
     const prior = await getExpediente(expediente.ejercicioAnteriorId);
     const priorArchivos = await listArchivos(expediente.ejercicioAnteriorId);
     if (prior && priorArchivos.length) {
-      payload.priorYear = {
-        ejercicio: prior.ejercicio,
-        archivos: priorArchivos.map((a) => ({ nombre: a.nombre, tipo: a.tipo })),
-      };
-      const priorFiles = await archivosToFiles(priorArchivos);
-      for (const f of files) formData.append("files", f);
-      for (const f of priorFiles) formData.append("files", f);
-    } else {
-      for (const f of files) formData.append("files", f);
+      priorYear = { ejercicio: prior.ejercicio, archivos: priorArchivos };
     }
-  } else {
-    for (const f of files) formData.append("files", f);
   }
-  formData.append("payload", JSON.stringify(payload));
 
   await updateExpediente(expedienteId, { estado: "procesando" });
 
-  const response = await fetch("/api/process", { method: "POST", body: formData });
-  const data = (await response.json().catch(() => ({}))) as ProcessOutput & { error?: string };
-  if (!response.ok) {
+  try {
+    const data = await processExpedienteRemote({
+      expedienteId,
+      cliente: expediente.cliente,
+      ejercicio: expediente.ejercicio,
+      archivos,
+      reglasCustom: reglas,
+      priorYear,
+      onProgress,
+    });
+
+    for (const update of data.archivos) {
+      await updateArchivoMetadata(update.id, { tipo: update.tipo, metadata: update.metadata });
+    }
+
+    await saveValidaciones(
+      expedienteId,
+      data.validaciones.map((v) => ({
+        ruleId: v.ruleId,
+        categoria: v.categoria,
+        severidad: v.severidad,
+        mensaje: v.mensaje,
+        title: v.title,
+        explanation: v.explanation,
+        normativa: v.normativa,
+        referencia: v.referencia,
+        evidencia: v.evidencia,
+        sugerencia: v.sugerencia,
+      }))
+    );
+
+    await updateExpediente(expedienteId, {
+      estado: "revisado",
+      cliente: data.cliente,
+      ejercicio: data.ejercicio,
+      tipoEmpresa: data.tipoEmpresa,
+      scoreSnapshot: JSON.stringify(data.score),
+      caseDataSnapshot: JSON.stringify(data.caseData),
+    });
+
+    return data;
+  } catch (err) {
     await updateExpediente(expedienteId, { estado: "borrador" });
-    throw new Error(data.error || "Error al procesar");
+    throw err;
   }
-
-  for (const update of data.archivos) {
-    await updateArchivoMetadata(update.id, { tipo: update.tipo, metadata: update.metadata });
-  }
-
-  await saveValidaciones(
-    expedienteId,
-    data.validaciones.map((v) => ({
-      ruleId: v.ruleId,
-      categoria: v.categoria,
-      severidad: v.severidad,
-      mensaje: v.mensaje,
-      title: v.title,
-      explanation: v.explanation,
-      normativa: v.normativa,
-      referencia: v.referencia,
-      evidencia: v.evidencia,
-      sugerencia: v.sugerencia,
-    }))
-  );
-
-  await updateExpediente(expedienteId, {
-    estado: "revisado",
-    cliente: data.cliente,
-    ejercicio: data.ejercicio,
-    tipoEmpresa: data.tipoEmpresa,
-    scoreSnapshot: JSON.stringify(data.score),
-    caseDataSnapshot: JSON.stringify(data.caseData),
-  });
-
-  return data;
 }

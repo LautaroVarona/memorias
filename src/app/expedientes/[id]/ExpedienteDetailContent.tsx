@@ -29,6 +29,7 @@ export function ExpedienteDetailContent() {
   const [data, setData] = useState<ExpedienteDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [processProgress, setProcessProgress] = useState("");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
@@ -60,9 +61,10 @@ export function ExpedienteDetailContent() {
   const handleProcess = useCallback(async () => {
     setProcessing(true);
     setError("");
+    setProcessProgress("");
     log.info("iniciando revisión manual", { expedienteId: id });
     try {
-      await runExpedienteProcess(id);
+      await runExpedienteProcess(id, setProcessProgress);
       log.info("revisión completada", { expedienteId: id });
       await load();
     } catch (err) {
@@ -71,6 +73,7 @@ export function ExpedienteDetailContent() {
       setError(message);
     } finally {
       setProcessing(false);
+      setProcessProgress("");
     }
   }, [id, load]);
 
@@ -204,7 +207,7 @@ export function ExpedienteDetailContent() {
 
       {processing && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          Ejecutando revisión automática… puede tardar unos segundos con archivos grandes.
+          {processProgress || "Ejecutando revisión automática… puede tardar unos segundos con archivos grandes."}
         </div>
       )}
 

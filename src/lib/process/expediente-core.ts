@@ -1,7 +1,7 @@
 import { buildCaseData } from "@/lib/case/build-case-data";
 import { clasificarEmpresa } from "@/lib/classifier";
 import { classifyUploadedFile } from "@/lib/process/classify-content";
-import { parseExcel } from "@/lib/parsers/excel/parser";
+import { parseExcel, type ExcelParseResult } from "@/lib/parsers/excel/parser";
 import { parseMemoria } from "@/lib/parsers/memoria/parser";
 import { runFullValidation, summarizeResults } from "@/lib/rules/engine";
 import type { CaseData } from "@/types/case-data";
@@ -29,6 +29,15 @@ export interface ReglaCustomInput {
   expedienteId?: string | null;
 }
 
+export interface ParsedArchivoPayload {
+  id: string;
+  nombre: string;
+  tipo: string;
+  metadata: string;
+  excel?: ExcelParseResult;
+  memoria?: MemoriaNormalizada;
+}
+
 export interface ProcessInput {
   expedienteId: string;
   cliente: string;
@@ -38,6 +47,18 @@ export interface ProcessInput {
   priorYear?: {
     ejercicio: number;
     archivos: ArchivoInput[];
+  };
+}
+
+export interface FinalizeInput {
+  expedienteId: string;
+  cliente: string;
+  ejercicio: number;
+  archivos: ParsedArchivoPayload[];
+  reglasCustom: ReglaCustomInput[];
+  priorYear?: {
+    ejercicio: number;
+    archivos: ParsedArchivoPayload[];
   };
 }
 
@@ -87,101 +108,121 @@ function mergeArchivoMetadata(
   return JSON.stringify({ ...base, ...patch, clasificacion: "contenido" });
 }
 
-async function parsePriorYearArchivos(archivos: ArchivoInput[]): Promise<{
+export async function parseSingleArchivo(archivo: ArchivoInput): Promise<ParsedArchivoPayload> {
+  const buffer = archivo.buffer;
+  const fileName = archivo.nombre;
+
+  let tipo = archivo.tipo;
+  try {
+    const refined = await classifyUploadedFile(buffer, fileName);
+    if (refined !== archivo.tipo) tipo = refined;
+  } catch {
+    // mantener tipo por extensión
+  }
+
+  let metadata = archivo.metadata ?? "{}";
+  let excel: ExcelParseResult | undefined;
+  let memoria: MemoriaNormalizada | undefined;
+
+  if (tipo.startsWith("excel")) {
+    excel = parseExcel(buffer, fileName);
+    metadata = mergeArchivoMetadata(metadata, {
+      ejercicio: excel.libroCierre?.ejercicio,
+      cliente: excel.libroCierre?.cliente,
+      formato: excel.libroCierre ? "libro_cierre" : "excel",
+    });
+  }
+
+  if (tipo === "memoria_word" || tipo === "memoria_pdf") {
+    memoria = await parseMemoria(buffer, fileName, tipo);
+    metadata = mergeArchivoMetadata(metadata, {
+      ejercicio: memoria.datosClave.ejercicio,
+      cliente: memoria.datosClave.denominacion,
+      formato: memoria.metadata.formato,
+    });
+  }
+
+  return { id: archivo.id, nombre: fileName, tipo, metadata, excel, memoria };
+}
+
+function mergeParsedFromPrior(archivos: ParsedArchivoPayload[]): {
   balance?: BalanceNormalizado;
   memoria?: MemoriaNormalizada;
   ejercicio: number;
-}> {
-  let antBalance: BalanceNormalizado | undefined;
-  let antMemoria: MemoriaNormalizada | undefined;
+} {
+  let balance: BalanceNormalizado | undefined;
+  let memoria: MemoriaNormalizada | undefined;
   let ejercicio = 0;
 
   for (const archivo of archivos) {
-    const buffer = archivo.buffer;
-    let tipo = archivo.tipo;
-    try {
-      tipo = await classifyUploadedFile(buffer, archivo.nombre);
-    } catch {
-      // mantener tipo por extensión
+    if (archivo.excel) {
+      if (archivo.excel.balance) balance = archivo.excel.balance;
+      if (archivo.excel.libroCierre?.ejercicio) ejercicio = archivo.excel.libroCierre.ejercicio;
     }
-
-    if (tipo.startsWith("excel")) {
-      const parsed = parseExcel(buffer, archivo.nombre);
-      if (parsed.balance) antBalance = parsed.balance;
-      if (parsed.libroCierre?.ejercicio) ejercicio = parsed.libroCierre.ejercicio;
-    }
-    if (tipo === "memoria_word" || tipo === "memoria_pdf") {
-      antMemoria = await parseMemoria(buffer, archivo.nombre, tipo);
-      if (antMemoria.datosClave.ejercicio) ejercicio = antMemoria.datosClave.ejercicio;
+    if (archivo.memoria) {
+      memoria = archivo.memoria;
+      if (archivo.memoria.datosClave.ejercicio) ejercicio = archivo.memoria.datosClave.ejercicio;
     }
   }
 
-  return { balance: antBalance, memoria: antMemoria, ejercicio };
+  return { balance, memoria, ejercicio };
 }
 
-export async function processExpedienteCore(input: ProcessInput): Promise<ProcessOutput> {
-  const { expedienteId, archivos, reglasCustom } = input;
+function applyParsedArchivo(
+  archivo: ParsedArchivoPayload,
+  state: {
+    balance?: BalanceNormalizado;
+    balanceAnterior?: BalanceNormalizado;
+    sumasSaldos?: CuentaNormalizada[];
+    libroCierre?: LibroCierre;
+    memorias: MemoriaNormalizada[];
+  }
+) {
+  const { tipo } = archivo;
 
-  let balance: BalanceNormalizado | undefined;
-  let balanceAnterior: BalanceNormalizado | undefined;
-  let sumasSaldos: CuentaNormalizada[] | undefined;
-  let libroCierre: LibroCierre | undefined;
-  let memoria: MemoriaNormalizada | undefined;
-  const memorias: MemoriaNormalizada[] = [];
-  const archivoUpdates: ProcessArchivoUpdate[] = [];
-
-  for (const archivo of archivos) {
-    const buffer = archivo.buffer;
-    const fileName = archivo.nombre;
-
-    let tipo = archivo.tipo;
-    try {
-      const refined = await classifyUploadedFile(buffer, fileName);
-      if (refined !== archivo.tipo) tipo = refined;
-    } catch {
-      // mantener tipo por extensión
-    }
-
-    let metadata = archivo.metadata ?? "{}";
-
-    if (tipo.startsWith("excel")) {
-      const parsed = parseExcel(buffer, fileName);
-
-      if (tipo !== "excel_anterior") {
-        if (parsed.balance) balance = parsed.balance;
-        if (parsed.balanceAnterior) balanceAnterior = parsed.balanceAnterior;
-        if (parsed.sumasSaldos) sumasSaldos = parsed.sumasSaldos;
-        if (parsed.libroCierre) libroCierre = parsed.libroCierre;
-      }
-
-      metadata = mergeArchivoMetadata(metadata, {
-        ejercicio: parsed.libroCierre?.ejercicio,
-        cliente: parsed.libroCierre?.cliente,
-        formato: parsed.libroCierre ? "libro_cierre" : "excel",
-      });
-    }
-
-    if (tipo === "memoria_word" || tipo === "memoria_pdf") {
-      const parsedMemoria = await parseMemoria(buffer, fileName, tipo);
-      memorias.push(parsedMemoria);
-      metadata = mergeArchivoMetadata(metadata, {
-        ejercicio: parsedMemoria.datosClave.ejercicio,
-        cliente: parsedMemoria.datosClave.denominacion,
-        formato: parsedMemoria.metadata.formato,
-      });
-    }
-
-    archivoUpdates.push({ id: archivo.id, tipo, metadata });
+  if (archivo.excel && tipo.startsWith("excel") && tipo !== "excel_anterior") {
+    if (archivo.excel.balance) state.balance = archivo.excel.balance;
+    if (archivo.excel.balanceAnterior) state.balanceAnterior = archivo.excel.balanceAnterior;
+    if (archivo.excel.sumasSaldos) state.sumasSaldos = archivo.excel.sumasSaldos;
+    if (archivo.excel.libroCierre) state.libroCierre = archivo.excel.libroCierre;
   }
 
-  const ejercicio = libroCierre?.ejercicio ?? input.ejercicio;
-  const cliente = libroCierre?.cliente ?? input.cliente;
+  if (archivo.memoria && (tipo === "memoria_word" || tipo === "memoria_pdf")) {
+    state.memorias.push(archivo.memoria);
+  }
+}
 
+export function finalizeExpedienteCore(input: FinalizeInput): ProcessOutput {
+  const { expedienteId, archivos, reglasCustom } = input;
+
+  const state = {
+    balance: undefined as BalanceNormalizado | undefined,
+    balanceAnterior: undefined as BalanceNormalizado | undefined,
+    sumasSaldos: undefined as CuentaNormalizada[] | undefined,
+    libroCierre: undefined as LibroCierre | undefined,
+    memorias: [] as MemoriaNormalizada[],
+  };
+
+  const archivoUpdates: ProcessArchivoUpdate[] = archivos.map((a) => ({
+    id: a.id,
+    tipo: a.tipo,
+    metadata: a.metadata,
+  }));
+
+  for (const archivo of archivos) {
+    applyParsedArchivo(archivo, state);
+  }
+
+  const ejercicio = state.libroCierre?.ejercicio ?? input.ejercicio;
+  const cliente = state.libroCierre?.cliente ?? input.cliente;
+
+  let memoria: MemoriaNormalizada | undefined;
   let memoriaAnterior: MemoriaNormalizada | undefined;
-  if (memorias.length === 1) {
-    memoria = memorias[0];
-  } else if (memorias.length > 1) {
-    const ordenadas = [...memorias].sort(
+
+  if (state.memorias.length === 1) {
+    memoria = state.memorias[0];
+  } else if (state.memorias.length > 1) {
+    const ordenadas = [...state.memorias].sort(
       (a, b) => (b.datosClave.ejercicio ?? 0) - (a.datosClave.ejercicio ?? 0)
     );
     memoria = ordenadas.find((m) => m.datosClave.ejercicio === ejercicio) ?? ordenadas[0];
@@ -192,10 +233,10 @@ export async function processExpedienteCore(input: ProcessInput): Promise<Proces
     | { ejercicio: number; balance?: BalanceNormalizado; memoria?: MemoriaNormalizada }
     | undefined;
 
-  if (libroCierre?.ejercicioAnterior !== undefined) {
+  if (state.libroCierre?.ejercicioAnterior !== undefined) {
     priorYear = {
-      ejercicio: libroCierre.ejercicioAnterior,
-      balance: balanceAnterior,
+      ejercicio: state.libroCierre.ejercicioAnterior,
+      balance: state.balanceAnterior,
       memoria: memoriaAnterior,
     };
   } else if (memoriaAnterior?.datosClave.ejercicio !== undefined) {
@@ -206,7 +247,7 @@ export async function processExpedienteCore(input: ProcessInput): Promise<Proces
   }
 
   if (!priorYear && input.priorYear?.archivos.length) {
-    const parsed = await parsePriorYearArchivos(input.priorYear.archivos);
+    const parsed = mergeParsedFromPrior(input.priorYear.archivos);
     priorYear = {
       ejercicio: input.priorYear.ejercicio || parsed.ejercicio,
       balance: parsed.balance,
@@ -214,7 +255,7 @@ export async function processExpedienteCore(input: ProcessInput): Promise<Proces
     };
   }
 
-  const cuentas = balance?.cuentas || sumasSaldos || [];
+  const cuentas = state.balance?.cuentas || state.sumasSaldos || [];
   const tipoEmpresa = clasificarEmpresa(cuentas);
 
   const caseData = buildCaseData({
@@ -222,9 +263,9 @@ export async function processExpedienteCore(input: ProcessInput): Promise<Proces
     cliente,
     ejercicio,
     tipoEmpresa,
-    balance,
-    sumasSaldos,
-    libroCierre,
+    balance: state.balance,
+    sumasSaldos: state.sumasSaldos,
+    libroCierre: state.libroCierre,
     memoria,
     priorYear,
   });
@@ -263,4 +304,30 @@ export async function processExpedienteCore(input: ProcessInput): Promise<Proces
     score,
     resumen: summarizeResults(results),
   };
+}
+
+export async function processExpedienteCore(input: ProcessInput): Promise<ProcessOutput> {
+  const parsed: ParsedArchivoPayload[] = [];
+  for (const archivo of input.archivos) {
+    parsed.push(await parseSingleArchivo(archivo));
+  }
+
+  let priorParsed: ParsedArchivoPayload[] | undefined;
+  if (input.priorYear?.archivos.length) {
+    priorParsed = [];
+    for (const archivo of input.priorYear.archivos) {
+      priorParsed.push(await parseSingleArchivo(archivo));
+    }
+  }
+
+  return finalizeExpedienteCore({
+    expedienteId: input.expedienteId,
+    cliente: input.cliente,
+    ejercicio: input.ejercicio,
+    archivos: parsed,
+    reglasCustom: input.reglasCustom,
+    priorYear: priorParsed?.length
+      ? { ejercicio: input.priorYear!.ejercicio, archivos: priorParsed }
+      : undefined,
+  });
 }
