@@ -134,12 +134,20 @@ export async function parseSingleArchivo(archivo: ArchivoInput): Promise<ParsedA
   }
 
   if (tipo === "memoria_word" || tipo === "memoria_pdf") {
-    memoria = await parseMemoria(buffer, fileName, tipo);
-    metadata = mergeArchivoMetadata(metadata, {
-      ejercicio: memoria.datosClave.ejercicio,
-      cliente: memoria.datosClave.denominacion,
-      formato: memoria.metadata.formato,
-    });
+    try {
+      memoria = await parseMemoria(buffer, fileName, tipo);
+      metadata = mergeArchivoMetadata(metadata, {
+        ejercicio: memoria.datosClave.ejercicio,
+        cliente: memoria.datosClave.denominacion,
+        formato: memoria.metadata.formato,
+      });
+    } catch (err) {
+      // Evita que una memoria dañada/incompatible tumbe toda la revisión.
+      metadata = mergeArchivoMetadata(metadata, {
+        parseError: err instanceof Error ? err.message : "Error al parsear memoria",
+      });
+      memoria = undefined;
+    }
   }
 
   return { id: archivo.id, nombre: fileName, tipo, metadata, excel, memoria };
