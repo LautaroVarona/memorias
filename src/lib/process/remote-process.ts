@@ -2,13 +2,16 @@ import type { ParsedArchivoPayload, ProcessOutput } from "@/lib/process/expedien
 import { getArchivoBlob } from "@/lib/storage/expediente-store";
 import type { StoredArchivo, StoredReglaCustom } from "@/lib/storage/types";
 
-const MAX_FILE_BYTES = 4 * 1024 * 1024;
+/** Vercel limita el body de cada request a ~4,5 MB; dejamos margen para el multipart. */
+const VERCEL_BODY_LIMIT_BYTES = 4.5 * 1024 * 1024;
+const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
+const MAX_FILE_BYTES = VERCEL_BODY_LIMIT_BYTES - MULTIPART_OVERHEAD_BYTES;
 
 async function parseArchivoRemote(archivo: StoredArchivo, blob: ArrayBuffer): Promise<ParsedArchivoPayload> {
   if (blob.byteLength > MAX_FILE_BYTES) {
     throw new Error(
       `«${archivo.nombre}» pesa ${(blob.byteLength / 1024 / 1024).toFixed(1)} MB. ` +
-        "El límite por archivo en la nube es 4 MB. Comprima el archivo o revíselo en local."
+        "Vercel no admite archivos mayores a ~4,5 MB por petición. Comprima el archivo o revíselo en local (npm run dev)."
     );
   }
 
@@ -29,7 +32,7 @@ async function parseArchivoRemote(archivo: StoredArchivo, blob: ArrayBuffer): Pr
 
   if (response.status === 413) {
     throw new Error(
-      `«${archivo.nombre}» supera el límite de subida del servidor (4 MB). ` +
+      `«${archivo.nombre}» supera el límite de Vercel (~4,5 MB por petición). ` +
         "Pruebe en local o reduzca el tamaño del archivo."
     );
   }
