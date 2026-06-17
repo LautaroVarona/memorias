@@ -62,7 +62,6 @@ export async function processExpediente(expedienteId: string): Promise<{
   let balanceAnterior: BalanceNormalizado | undefined;
   let sumasSaldos: CuentaNormalizada[] | undefined;
   let libroCierre: LibroCierre | undefined;
-  let memoria: MemoriaNormalizada | undefined;
   const memorias: MemoriaNormalizada[] = [];
 
   await prisma.datosExtraidos.deleteMany({ where: { expedienteId } });
@@ -179,8 +178,7 @@ export async function processExpediente(expedienteId: string): Promise<{
   });
   const cliente = libroCierre?.cliente ?? expediente.cliente;
 
-  const { memoria: memoriaActual, memoriaAnterior } = assignMemorias(memorias, ejercicio);
-  memoria = memoriaActual;
+  const { memoria, memoriaAnterior } = assignMemorias(memorias, ejercicio);
 
   let priorYear: { ejercicio: number; balance?: BalanceNormalizado; memoria?: MemoriaNormalizada } | undefined;
 

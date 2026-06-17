@@ -23,7 +23,6 @@ export interface VinculadasTotals {
 
 const CLIENTES_PREFIXES = ["433", "434", "43"];
 const PROVEEDORES_PREFIXES = ["403", "404", "40"];
-const PRESTAMOS_PREFIXES = ["242", "552"];
 
 function sumByPrefixes(accounts: CuentaNormalizada[], prefixes: string[]): number {
   return accounts

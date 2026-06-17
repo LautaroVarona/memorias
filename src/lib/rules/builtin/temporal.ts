@@ -114,7 +114,6 @@ export const temporalRules: RuleDefinition[] = [
         while ((m = b.regex.exec(texto)) !== null) {
           const start = Math.max(0, m.index - 60);
           const fragmento = texto.slice(start, m.index + m[0].length + 60).replace(/\s+/g, " ").trim();
-          const linea = texto.slice(0, m.index).split(/\n/).length;
           const pagina = Math.max(1, (texto.slice(0, m.index).match(/\f/g) || []).length + 1);
           detecciones.push({ patron: b.etiqueta, fragmento, critico: b.critico, pagina });
         }

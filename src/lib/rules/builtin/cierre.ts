@@ -4,7 +4,7 @@ import { withEuro, withMemoryLocator, withText } from "@/lib/rules/helpers/evide
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
 import apartadosPGC from "../../../../data/pgc/apartados-memoria.json";
 import type { CaseData } from "@/types/case-data";
-import type { CuentaNormalizada, NotaDespacho, TablaMemoria } from "@/types/domain";
+import type { CuentaNormalizada, NotaDespacho } from "@/types/domain";
 import type { RuleDefinition } from "../types";
 
 /**

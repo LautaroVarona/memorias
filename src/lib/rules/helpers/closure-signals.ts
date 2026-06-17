@@ -38,3 +38,27 @@ export function hasSysA3Differences(data: CaseData): { has: boolean; count: numb
 
   return { has: count > 0, count };
 }
+
+export function hasElevatedVinculadas(data: CaseData): boolean {
+  const accounts = getAccounts(data);
+  const total = accounts
+    .filter(
+      (c) =>
+        Math.abs(c.saldo) > 0 &&
+        ["24", "25", "242", "552", "433", "434", "403", "404"].some((p) => c.cuenta.startsWith(p))
+    )
+    .reduce((s, c) => s + Math.abs(c.saldo), 0);
+  return total > 50_000;
+}
+
+export function hasElevatedResultado(data: CaseData): boolean {
+  const resultado = data.financials.balance?.resultado ?? 0;
+  return Math.abs(resultado) > 100_000;
+}
+
+export function hasVinculadasExplanation(data: CaseData): boolean {
+  const texto = data.memory?.fullText.toLowerCase() ?? "";
+  if (/operaciones?\s+(con\s+)?partes?\s+vinculadas|saldos?\s+con\s+vinculadas/i.test(texto)) return true;
+  const tablas = data.memory?.tables.filter((t) => t.apartado === "09" || /vinculad/i.test(t.titulo)) ?? [];
+  return tablas.some((t) => !t.vacia && t.filas.length > 0);
+}
