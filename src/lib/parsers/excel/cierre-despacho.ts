@@ -122,7 +122,8 @@ function parseContabilidad(
         haber,
         debe - haber,
         r + 1,
-        hojaLabel
+        hojaLabel,
+        colHaber >= 0 ? colHaber : colDebe
       )
     );
   }

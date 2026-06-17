@@ -38,6 +38,8 @@ export interface CuentaNormalizada {
   grupoPGC: "activo" | "pasivo" | "patrimonio" | "ingreso" | "gasto" | "otro";
   fila?: number;
   hoja?: string;
+  /** Índice de columna Excel (0-based) donde se lee el saldo */
+  columna?: number;
 }
 
 export interface SeccionBalance {
@@ -79,6 +81,7 @@ export interface TablaMemoria {
   /** true si las celdas de datos están todas vacías */
   vacia: boolean;
   linea: number;
+  pagina?: number;
 }
 
 export interface AnioMencionado {
@@ -86,6 +89,8 @@ export interface AnioMencionado {
   contexto: string;
   /** true si parece referencia normativa (Ley 16/2012, RD, artículo...) */
   esReferenciaLegal: boolean;
+  linea?: number;
+  pagina?: number;
 }
 
 export interface DatosClaveMemoria {

@@ -11,6 +11,12 @@ export interface EvidenceItem {
   text?: string;
   detalle?: string;
   importance?: "high" | "medium" | "low";
+  documentName?: string;
+  page?: number;
+  sheet?: string;
+  row?: number;
+  column?: string;
+  group?: string;
 }
 
 export interface ValidacionView {

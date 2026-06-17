@@ -1,7 +1,8 @@
 import { parseImporte } from "@/lib/parsers/memoria/extractors";
 import type { CaseData } from "@/types/case-data";
 import type { CuentaNormalizada } from "@/types/domain";
-import { breakdownGroupAccounts } from "./group-accounts";
+import { classifyGroupAccount, breakdownGroupAccounts } from "./group-accounts";
+import { GROUP_CATEGORY_LABELS, type GroupAccountCategory } from "./group-accounts";
 
 export interface VinculadasTotals {
   excel: {
@@ -105,3 +106,33 @@ export const DIAGNOSIS_LABELS: Record<VinculadasDiagnosis, string> = {
   afirmacion_incorrecta: "La memoria niega vinculadas pero la contabilidad muestra saldos relevantes",
   descuadre_parcial: "Descuadre parcial entre totales de vinculadas en memoria y Excel",
 };
+
+export interface VinculadasBreakdownLine {
+  cuenta: string;
+  descripcion: string;
+  saldo: number;
+  categoria: GroupAccountCategory;
+  hoja?: string;
+  fila?: number;
+  columna?: number;
+}
+
+/** Líneas de desglose Excel listas para generar evidencias de CROSS_001. */
+export function buildVinculadasExcelBreakdown(accounts: CuentaNormalizada[]): VinculadasBreakdownLine[] {
+  return accounts
+    .filter((c) => Math.abs(c.saldo) > 0)
+    .map((c) => ({
+      cuenta: c.cuenta,
+      descripcion: c.descripcion,
+      saldo: Math.abs(c.saldo),
+      categoria: classifyGroupAccount(c.cuenta),
+      hoja: c.hoja,
+      fila: c.fila,
+      columna: c.columna,
+    }))
+    .sort((a, b) => b.saldo - a.saldo);
+}
+
+export function categoryLabel(cat: GroupAccountCategory): string {
+  return GROUP_CATEGORY_LABELS[cat] ?? GROUP_CATEGORY_LABELS.otro;
+}

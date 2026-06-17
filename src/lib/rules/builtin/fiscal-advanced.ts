@@ -1,6 +1,5 @@
 import reglasFiscales from "../../../../data/pgc/reglas-fiscales.json";
 import { getAccounts } from "@/lib/case/build-case-data";
-import { detectMissingFiscalModels } from "@/lib/rules/helpers/closure-signals";
 import { formatEuro, sumByPrefix } from "@/lib/rules/helpers/accounts";
 import { seniorExplanationPass, seniorIssue } from "@/lib/rules/helpers/explanation";
 import { withEuro, withText } from "@/lib/rules/helpers/evidence";
@@ -98,46 +97,6 @@ export const fiscalAdvancedRules: RuleDefinition[] = [
         withText("memory", "Bases negativas", "Mencionadas sin uso documentado", "high"),
         withEuro("excel", "Resultado del ejercicio", outcome.data.resultado as number, "medium"),
       ];
-    },
-  },
-  {
-    id: "FISCAL_ADV_003",
-    title: "Modelos fiscales faltantes — riesgo alto",
-    type: "fiscal",
-    defaultSeverity: "warning",
-    normativa: "Obligaciones formales tributarias",
-    referencia: "Modelos 115, 347, 349, 180",
-    execute(data) {
-      const faltantes = detectMissingFiscalModels(data);
-      const triggered = faltantes.length > 0;
-
-      return {
-        passed: !triggered,
-        severity: "warning",
-        warningLevel: "high",
-        tags: ["riesgo_fiscal"],
-        diagnosis: triggered ? "Obligaciones formales tributarias sin confirmar" : undefined,
-        sugerencia: "Verifique y presente los modelos fiscales aplicables antes de formular.",
-        data: { faltantes },
-      };
-    },
-    explanation(outcome) {
-      if (outcome.passed) {
-        return seniorExplanationPass("No se detectan modelos fiscales obligatorios sin confirmar.");
-      }
-      const faltantes = (outcome.data.faltantes as string[]) ?? [];
-      return seniorIssue(
-        `Según las operaciones del ejercicio, podrían faltar: ${faltantes.join("; ")}.`,
-        `La omisión de modelos fiscales genera responsabilidad tributaria y compromete la formulación del cierre.`,
-        `Confirme la presentación de cada modelo o documente por qué no aplica.`,
-        "Señales contables de obligación formal sin evidencia de cumplimiento"
-      ).explanation;
-    },
-    evidence(outcome) {
-      if (outcome.passed) return [];
-      return ((outcome.data.faltantes as string[]) ?? []).map((m) =>
-        withText("excel", "Modelo fiscal", m, "high")
-      );
     },
   },
 ];

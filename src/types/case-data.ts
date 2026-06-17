@@ -40,6 +40,13 @@ export interface Evidence {
   formattedValue?: string;
   text?: string;
   importance?: EvidenceImportance;
+  documentName?: string;
+  page?: number;
+  sheet?: string;
+  row?: number;
+  column?: string;
+  /** Agrupación opcional para desgloses (p. ej. CROSS_001) */
+  group?: string;
 }
 
 export type RuleType =

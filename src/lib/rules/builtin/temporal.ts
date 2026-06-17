@@ -1,5 +1,5 @@
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
-import { withText } from "@/lib/rules/helpers/evidence";
+import { withMemoryLocator, withText } from "@/lib/rules/helpers/evidence";
 import type { AnioMencionado } from "@/types/domain";
 import type { RuleDefinition } from "../types";
 
@@ -40,14 +40,20 @@ export const temporalRules: RuleDefinition[] = [
     referencia: "Memoria — coherencia temporal",
     execute(data) {
       if (!data.memory) return { passed: true, data: { skip: true } };
-      const ejercicio = data.memory.keyData.ejercicio ?? data.metadata.ejercicio;
+      const ejercicio = data.metadata.ejercicio;
+      if (
+        data.memory.keyData.ejercicio !== undefined &&
+        data.memory.keyData.ejercicio !== ejercicio
+      ) {
+        return { passed: true, data: { skip: true, reason: "memoria_no_actual" } };
+      }
       const sospechosos = aniosSospechosos(data.memory.years, ejercicio);
       return {
         passed: sospechosos.length === 0,
         severity: "critical",
         sugerencia:
           "Actualice los párrafos señalados: son texto arrastrado de memorias de ejercicios anteriores.",
-        data: { sospechosos, ejercicio },
+        data: { sospechosos, ejercicio, docName: data.memory?.metadata.archivo },
       };
     },
     explanation(outcome) {
@@ -64,9 +70,17 @@ export const temporalRules: RuleDefinition[] = [
     },
     evidence(outcome) {
       if (outcome.passed) return [];
+      const docName = outcome.data.docName as string | undefined;
       return ((outcome.data.sospechosos as AnioMencionado[]) ?? [])
         .slice(0, 6)
-        .map((s) => withText("memory", `Mención a ${s.anio}`, `…${s.contexto}…`, "high"));
+        .map((s) =>
+          withMemoryLocator(
+            `Mención a ${s.anio}`,
+            `…${s.contexto}…`,
+            { documentName: docName, page: s.pagina },
+            "high"
+          )
+        );
     },
   },
   {
@@ -78,10 +92,16 @@ export const temporalRules: RuleDefinition[] = [
     referencia: "Memoria — hechos posteriores y aspectos críticos",
     execute(data) {
       if (!data.memory) return { passed: true, data: { skip: true } };
-      const ejercicio = data.memory.keyData.ejercicio ?? data.metadata.ejercicio;
+      const ejercicio = data.metadata.ejercicio;
+      if (
+        data.memory.keyData.ejercicio !== undefined &&
+        data.memory.keyData.ejercicio !== ejercicio
+      ) {
+        return { passed: true, data: { skip: true, reason: "memoria_no_actual" } };
+      }
       const texto = data.memory.fullText;
 
-      const detecciones: { patron: string; fragmento: string; critico: boolean }[] = [];
+      const detecciones: { patron: string; fragmento: string; critico: boolean; pagina?: number }[] = [];
       const boilerplate: { regex: RegExp; etiqueta: string; desde: number; critico: boolean }[] = [
         { regex: /estado de alarma/gi, etiqueta: "estado de alarma", desde: 2022, critico: true },
         { regex: /expansi[óo]n de esta pandemia|la pandemia de la COVID-?19|crisis sanitaria/gi, etiqueta: "pandemia COVID-19", desde: 2023, critico: false },
@@ -94,7 +114,9 @@ export const temporalRules: RuleDefinition[] = [
         while ((m = b.regex.exec(texto)) !== null) {
           const start = Math.max(0, m.index - 60);
           const fragmento = texto.slice(start, m.index + m[0].length + 60).replace(/\s+/g, " ").trim();
-          detecciones.push({ patron: b.etiqueta, fragmento, critico: b.critico });
+          const linea = texto.slice(0, m.index).split(/\n/).length;
+          const pagina = Math.max(1, (texto.slice(0, m.index).match(/\f/g) || []).length + 1);
+          detecciones.push({ patron: b.etiqueta, fragmento, critico: b.critico, pagina });
         }
       }
 
@@ -102,7 +124,7 @@ export const temporalRules: RuleDefinition[] = [
         passed: detecciones.length === 0,
         severity: detecciones.some((d) => d.critico) ? "critical" : "warning",
         sugerencia: "Elimine o reescriba el texto de plantilla que ya no refleja la situación actual.",
-        data: { detecciones, ejercicio },
+        data: { detecciones, ejercicio, docName: data.memory?.metadata.archivo },
       };
     },
     explanation(outcome) {
@@ -122,9 +144,17 @@ export const temporalRules: RuleDefinition[] = [
     },
     evidence(outcome) {
       if (outcome.passed) return [];
-      return ((outcome.data.detecciones as { patron: string; fragmento: string }[]) ?? [])
+      const docName = outcome.data.docName as string | undefined;
+      return ((outcome.data.detecciones as { patron: string; fragmento: string; pagina?: number }[]) ?? [])
         .slice(0, 5)
-        .map((d) => withText("memory", d.patron, `…${d.fragmento}…`, "high"));
+        .map((d) =>
+          withMemoryLocator(
+            d.patron,
+            `…${d.fragmento}…`,
+            { documentName: docName, page: d.pagina },
+            "high"
+          )
+        );
     },
   },
   {

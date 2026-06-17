@@ -1,6 +1,7 @@
 import { buildCaseData } from "@/lib/case/build-case-data";
 import { clasificarEmpresa } from "@/lib/classifier";
 import { classifyUploadedFile } from "@/lib/process/classify-content";
+import { assignMemorias, resolveEjercicioActual } from "@/lib/process/resolve-ejercicio";
 import { parseExcel, type ExcelParseResult } from "@/lib/parsers/excel/parser";
 import { parseMemoria } from "@/lib/parsers/memoria/parser";
 import { runFullValidation, summarizeResults } from "@/lib/rules/engine";
@@ -221,21 +222,16 @@ export function finalizeExpedienteCore(input: FinalizeInput): ProcessOutput {
     applyParsedArchivo(archivo, state);
   }
 
-  const ejercicio = state.libroCierre?.ejercicio ?? input.ejercicio;
+  const ejercicio = resolveEjercicioActual({
+    libroEjercicio: state.libroCierre?.ejercicio,
+    memoriasEjercicios: state.memorias
+      .map((m) => m.datosClave.ejercicio)
+      .filter((y): y is number => y !== undefined),
+    expedienteEjercicio: input.ejercicio,
+  });
   const cliente = state.libroCierre?.cliente ?? input.cliente;
 
-  let memoria: MemoriaNormalizada | undefined;
-  let memoriaAnterior: MemoriaNormalizada | undefined;
-
-  if (state.memorias.length === 1) {
-    memoria = state.memorias[0];
-  } else if (state.memorias.length > 1) {
-    const ordenadas = [...state.memorias].sort(
-      (a, b) => (b.datosClave.ejercicio ?? 0) - (a.datosClave.ejercicio ?? 0)
-    );
-    memoria = ordenadas.find((m) => m.datosClave.ejercicio === ejercicio) ?? ordenadas[0];
-    memoriaAnterior = ordenadas.find((m) => m !== memoria);
-  }
+  const { memoria, memoriaAnterior } = assignMemorias(state.memorias, ejercicio);
 
   let priorYear:
     | { ejercicio: number; balance?: BalanceNormalizado; memoria?: MemoriaNormalizada }

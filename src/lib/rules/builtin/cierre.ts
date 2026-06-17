@@ -1,6 +1,6 @@
 import { parseImporte, detectarTablasAnunciadasAusentes } from "@/lib/parsers/memoria/extractors";
 import { formatEuro } from "@/lib/rules/helpers/accounts";
-import { withEuro, withText } from "@/lib/rules/helpers/evidence";
+import { withEuro, withMemoryLocator, withText } from "@/lib/rules/helpers/evidence";
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
 import apartadosPGC from "../../../../data/pgc/apartados-memoria.json";
 import type { CaseData } from "@/types/case-data";
@@ -437,8 +437,14 @@ export const cierreRules: RuleDefinition[] = [
         severity: "warning",
         sugerencia: "Complete las tablas vacías o elimine el texto que las anuncia si no aplican.",
         data: {
-          vacias: vacias.map((t) => ({ titulo: t.titulo, apartado: t.apartado, linea: t.linea })),
+          vacias: vacias.map((t) => ({
+            titulo: t.titulo,
+            apartado: t.apartado,
+            linea: t.linea,
+            pagina: t.pagina,
+          })),
           anunciadas,
+          docName: data.memory?.metadata.archivo,
         },
       };
     },
@@ -459,13 +465,22 @@ export const cierreRules: RuleDefinition[] = [
     },
     evidence(outcome) {
       if (outcome.passed) return [];
-      const vacias = (outcome.data.vacias as { titulo: string; apartado?: string }[]) ?? [];
+      const vacias =
+        (outcome.data.vacias as { titulo: string; apartado?: string; linea?: number; pagina?: number }[]) ?? [];
       const anunciadas = (outcome.data.anunciadas as string[]) ?? [];
+      const docName = outcome.data.docName as string | undefined;
       return [
         ...vacias.slice(0, 4).map((t) =>
-          withText("memory", t.apartado ? `Apartado ${t.apartado} — tabla vacía` : "Tabla vacía", t.titulo || "(sin título)", "high")
+          withMemoryLocator(
+            t.apartado ? `Apartado ${t.apartado} — tabla vacía` : "Tabla vacía",
+            t.titulo || "(sin título)",
+            { documentName: docName, page: t.pagina },
+            "high"
+          )
         ),
-        ...anunciadas.slice(0, 4).map((a) => withText("memory", "Detalle anunciado sin contenido", a, "high")),
+        ...anunciadas.slice(0, 4).map((a) =>
+          withMemoryLocator("Detalle anunciado sin contenido", a, { documentName: docName }, "high")
+        ),
       ];
     },
   },

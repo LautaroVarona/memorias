@@ -209,6 +209,36 @@ export function extraerApartados(texto: string): ApartadoMemoria[] {
 /**
  * Extrae las tablas del texto normalizado (filas con celdas separadas por " | ").
  */
+function lineaToPagina(texto: string, linea: number): number {
+  const fragmento = texto.split(/\n/).slice(0, Math.max(0, linea - 1)).join("\n");
+  return Math.max(1, (fragmento.match(/\f/g) || []).length + 1);
+}
+
+function celdaTieneContenido(celda: string): boolean {
+  const t = celda.trim();
+  if (!t) return false;
+  if (/^[-—–]$/.test(t)) return true;
+  if (/^(n\/?a|no aplica|s\.?d\.?|sin datos)$/i.test(t)) return true;
+  return /\d/.test(t);
+}
+
+function columnasDatosRelevantes(cabecera: string[]): number[] {
+  const importeCols: number[] = [];
+  for (let i = 1; i < cabecera.length; i++) {
+    if (/IMPORTE\s+20\d{2}/i.test(cabecera[i])) importeCols.push(i);
+  }
+  if (importeCols.length > 0) return [importeCols[importeCols.length - 1]];
+  return cabecera.slice(1).map((_, idx) => idx + 1);
+}
+
+function tablaEstaVacia(cabecera: string[], datos: string[][]): boolean {
+  if (datos.length === 0) return false;
+  const cols = columnasDatosRelevantes(cabecera);
+  const dataCells = datos.flatMap((f) => cols.map((c) => f[c] ?? ""));
+  if (dataCells.length === 0) return false;
+  return dataCells.every((c) => !celdaTieneContenido(c));
+}
+
 export function extraerTablas(texto: string): TablaMemoria[] {
   const lineas = texto.split(/\n/);
   const tablas: TablaMemoria[] = [];
@@ -222,17 +252,17 @@ export function extraerTablas(texto: string): TablaMemoria[] {
     if (bloque.length === 0) return;
     const filas = bloque.map((b) => b.cells);
     const cabecera = filas[0];
-    const datos = filas.length > 1 ? filas.slice(1) : filas;
-    // Celdas de datos: todas menos la primera columna (etiqueta de fila)
-    const dataCells = datos.flatMap((f) => f.slice(1));
-    const vacia = dataCells.length > 0 && dataCells.every((c) => c.trim() === "");
+    const datos = filas.length > 1 ? filas.slice(1) : [];
+    const lineaInicio = bloque[0].linea;
+    const vacia = tablaEstaVacia(cabecera, datos);
     tablas.push({
       apartado: apartadoActual,
       titulo: tituloPrevio,
       cabecera,
-      filas: filas.slice(1),
+      filas: datos,
       vacia,
-      linea: bloque[0].linea,
+      linea: lineaInicio,
+      pagina: lineaToPagina(texto, lineaInicio),
     });
     bloque = [];
   };
@@ -283,11 +313,15 @@ const MESES: Record<string, number> = {
 };
 
 function detectarEjercicio(texto: string): number | undefined {
-  // 1) Título explícito "MEMORIA ABREVIADA 2024"
+  // 1) Título explícito "MEMORIA ABREVIADA 2025"
   const titulo = texto.match(/MEMORIA\s+(?:ABREVIADA|PYMES?|NORMAL)?\s*(\d{4})/i);
   if (titulo) return parseInt(titulo[1], 10);
 
-  // 2) Pares comparativos "IMPORTE 2024 ... IMPORTE 2023": el mayor es el ejercicio
+  // 2) Fecha de cierre "a 31/12/2025" (más fiable que columnas comparativas)
+  const cierres = [...texto.matchAll(/\b31\/12\/(20\d{2})\b/g)].map((m) => parseInt(m[1], 10));
+  if (cierres.length > 0) return Math.max(...cierres);
+
+  // 3) Pares comparativos "IMPORTE 2025 ... IMPORTE 2024": el mayor consecutivo
   const importes = [...texto.matchAll(/IMPORTE\s+(20\d{2})/gi)].map((m) => parseInt(m[1], 10));
   if (importes.length >= 2) {
     const counts = new Map<number, number>();
@@ -295,10 +329,6 @@ function detectarEjercicio(texto: string): number | undefined {
     const candidatos = [...counts.keys()].filter((y) => counts.has(y - 1));
     if (candidatos.length > 0) return Math.max(...candidatos);
   }
-
-  // 3) Fecha de cierre "a 31/12/2024"
-  const cierre = texto.match(/31\/12\/(20\d{2})/);
-  if (cierre) return parseInt(cierre[1], 10);
 
   return undefined;
 }
@@ -385,6 +415,7 @@ export function extraerAniosMencionados(texto: string): AnioMencionado[] {
     const start = Math.max(0, m.index - 70);
     const end = Math.min(texto.length, m.index + m[1].length + 70);
     const contexto = texto.slice(start, end).replace(/\s+/g, " ").trim();
+    const linea = texto.slice(0, m.index).split(/\n/).length;
 
     // Ignorar componentes de fechas dd/mm/yyyy y números con separador de miles
     const antes = texto.slice(Math.max(0, m.index - 12), m.index);
@@ -393,7 +424,13 @@ export function extraerAniosMencionados(texto: string): AnioMencionado[] {
     const contextoCorto = texto.slice(Math.max(0, m.index - 30), m.index + 10);
     const esReferenciaLegal = /\d{1,3}\/$/.test(antes) || CONTEXTO_LEGAL.test(contextoCorto);
 
-    resultado.push({ anio, contexto, esReferenciaLegal });
+    resultado.push({
+      anio,
+      contexto,
+      esReferenciaLegal,
+      linea,
+      pagina: lineaToPagina(texto, linea),
+    });
   }
 
   return resultado;
@@ -415,19 +452,30 @@ export function detectarTablasAnunciadasAusentes(texto: string): string[] {
     if (!linea || linea.includes("|")) continue;
     if (!patronAnuncio.test(linea)) continue;
 
-    // Buscar contenido en las 4 líneas no vacías siguientes
+    // Buscar contenido en las 8 líneas no vacías siguientes
     let encontrado = false;
+    let filasTabla = 0;
     let revisadas = 0;
-    for (let j = i + 1; j < lineas.length && revisadas < 4; j++) {
+    for (let j = i + 1; j < lineas.length && revisadas < 8; j++) {
       const siguiente = lineas[j];
       if (!siguiente) continue;
       revisadas++;
-      if (siguiente.includes("|") || /\d/.test(siguiente)) {
+      if (siguiente.includes("|")) {
+        filasTabla++;
+        if (filasTabla >= 2) {
+          encontrado = true;
+          break;
+        }
+        continue;
+      }
+      if (CANONICAL_HEADING.test(siguiente)) {
         encontrado = true;
         break;
       }
-      // Si aparece otro título/párrafo largo, ya no hay tabla
-      if (siguiente.length > 60) break;
+      if (/\d/.test(siguiente)) {
+        encontrado = true;
+        break;
+      }
     }
 
     if (!encontrado) anuncios.push(linea.slice(0, 140));

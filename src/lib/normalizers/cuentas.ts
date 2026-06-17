@@ -48,7 +48,8 @@ export function normalizarCuenta(
   haber: number,
   saldo?: number,
   fila?: number,
-  hoja?: string
+  hoja?: string,
+  columna?: number
 ): CuentaNormalizada {
   const saldoFinal = saldo ?? debe - haber;
   return {
@@ -61,6 +62,7 @@ export function normalizarCuenta(
     grupoPGC: clasificarGrupoPGC(cuenta.trim()),
     fila,
     hoja,
+    columna,
   };
 }
 

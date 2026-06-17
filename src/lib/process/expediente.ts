@@ -4,6 +4,7 @@ import { clasificarEmpresa } from "@/lib/classifier";
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { classifyUploadedFile } from "@/lib/process/classify-content";
+import { assignMemorias, resolveEjercicioActual } from "@/lib/process/resolve-ejercicio";
 import { parseExcel } from "@/lib/parsers/excel/parser";
 import { parseMemoria } from "@/lib/parsers/memoria/parser";
 import { runFullValidation, summarizeResults } from "@/lib/rules/engine";
@@ -169,22 +170,17 @@ export async function processExpediente(expedienteId: string): Promise<{
     }
   }
 
-  // Ejercicio de referencia: el del libro de cierre manda sobre el dato manual
-  const ejercicio = libroCierre?.ejercicio ?? expediente.ejercicio;
+  const ejercicio = resolveEjercicioActual({
+    libroEjercicio: libroCierre?.ejercicio,
+    memoriasEjercicios: memorias
+      .map((m) => m.datosClave.ejercicio)
+      .filter((y): y is number => y !== undefined),
+    expedienteEjercicio: expediente.ejercicio,
+  });
   const cliente = libroCierre?.cliente ?? expediente.cliente;
 
-  // Si se subieron varias memorias (ejercicio actual + anterior), se asignan
-  // por el ejercicio detectado en su contenido.
-  let memoriaAnterior: MemoriaNormalizada | undefined;
-  if (memorias.length === 1) {
-    memoria = memorias[0];
-  } else if (memorias.length > 1) {
-    const ordenadas = [...memorias].sort(
-      (a, b) => (b.datosClave.ejercicio ?? 0) - (a.datosClave.ejercicio ?? 0)
-    );
-    memoria = ordenadas.find((m) => m.datosClave.ejercicio === ejercicio) ?? ordenadas[0];
-    memoriaAnterior = ordenadas.find((m) => m !== memoria);
-  }
+  const { memoria: memoriaActual, memoriaAnterior } = assignMemorias(memorias, ejercicio);
+  memoria = memoriaActual;
 
   let priorYear: { ejercicio: number; balance?: BalanceNormalizado; memoria?: MemoriaNormalizada } | undefined;
 

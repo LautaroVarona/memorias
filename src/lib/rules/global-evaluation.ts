@@ -1,10 +1,6 @@
 import type { CaseData, GlobalEstado } from "@/types/case-data";
 import type { RuleResult } from "@/types/domain";
-import {
-  countPendientes,
-  detectMissingFiscalModels,
-  hasSysA3Differences,
-} from "./helpers/closure-signals";
+import { countPendientes, hasSysA3Differences } from "./helpers/closure-signals";
 
 export interface GlobalEvaluation {
   estado: GlobalEstado;
@@ -42,11 +38,6 @@ export function evaluateGlobalClosure(
   const sysA3 = hasSysA3Differences(data);
   if (sysA3.has) {
     bloqueadores.push(`Diferencias SYS vs A3SOC (${sysA3.count} cuenta(s))`);
-  }
-
-  const modelosFaltantes = detectMissingFiscalModels(data);
-  if (modelosFaltantes.length > 0) {
-    bloqueadores.push(`Modelos fiscales sin confirmar: ${modelosFaltantes.join(", ")}`);
   }
 
   if (bloqueadores.length > 0) {

@@ -1,6 +1,6 @@
 import type { ParsedIssue, ValidacionView } from "./types";
 
-import { EvidenceBadge } from "./EvidenceBadge";
+import { EvidenceBadge, VinculadasBreakdown } from "./EvidenceBadge";
 
 import { ComparativeValues } from "./ComparativeValues";
 
@@ -28,11 +28,15 @@ function EvidenceSection({
 
   tone,
 
+  ruleId,
+
 }: {
 
   evidencia: ValidacionView["evidencia"];
 
   tone: "critical" | "warning";
+
+  ruleId: string;
 
 }) {
 
@@ -48,6 +52,11 @@ function EvidenceSection({
 
       : "text-amber-700/80";
 
+  const summaryItems =
+    ruleId === "CROSS_001"
+      ? evidencia.filter((e) => !e.group || !e.reference?.startsWith("Cta "))
+      : evidencia;
+
 
 
   return (
@@ -62,13 +71,19 @@ function EvidenceSection({
 
       <div className="space-y-2">
 
-        {evidencia.map((ev, i) => (
+        {summaryItems.map((ev, i) => (
 
-          <EvidenceBadge key={i} evidence={ev} />
+          <EvidenceBadge
+            key={i}
+            evidence={ev}
+            prominentLocator={ruleId === "CROSS_001"}
+          />
 
         ))}
 
       </div>
+
+      {ruleId === "CROSS_001" && <VinculadasBreakdown evidencia={evidencia} />}
 
     </div>
 
@@ -162,7 +177,11 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
 
 
 
-        <EvidenceSection evidencia={validacion.evidencia} tone="critical" />
+        <EvidenceSection
+          evidencia={validacion.evidencia}
+          tone="critical"
+          ruleId={validacion.ruleId}
+        />
 
       </article>
 
@@ -196,11 +215,23 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
 
         (issue.keyFact || issue.what) && (
 
-          <p className="mt-2 text-sm font-medium text-amber-900">
+          <div className="mt-2">
 
-            {issue.keyFact ?? issue.what.split(".")[0]}
+            {issue.what && issue.what.length > 80 ? (
 
-          </p>
+              <ExpandableText text={issue.what} className="text-amber-900 font-medium" />
+
+            ) : (
+
+              <p className="text-sm font-medium text-amber-900">
+
+                {issue.keyFact ?? issue.what.split(".")[0]}
+
+              </p>
+
+            )}
+
+          </div>
 
         )
 
@@ -260,11 +291,23 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
 
         <div className="mt-3 space-y-2">
 
-          {validacion.evidencia.map((ev, i) => (
+          {(validacion.ruleId === "CROSS_001"
+            ? validacion.evidencia.filter((e) => !e.group || !e.reference?.startsWith("Cta "))
+            : validacion.evidencia
+          ).map((ev, i) => (
 
-            <EvidenceBadge key={i} evidence={ev} compact={validacion.evidencia.length > 2} />
+            <EvidenceBadge
+              key={i}
+              evidence={ev}
+              compact={validacion.evidencia.length > 2 && validacion.ruleId !== "CROSS_001"}
+              prominentLocator={validacion.ruleId === "CROSS_001"}
+            />
 
           ))}
+
+          {validacion.ruleId === "CROSS_001" && (
+            <VinculadasBreakdown evidencia={validacion.evidencia} />
+          )}
 
         </div>
 
@@ -275,4 +318,3 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
   );
 
 }
-

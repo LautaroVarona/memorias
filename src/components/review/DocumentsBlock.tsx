@@ -1,3 +1,7 @@
+import {
+  resolveDocumentYears,
+} from "@/lib/process/resolve-ejercicio";
+
 interface ArchivoDoc {
   id: string;
   nombre: string;
@@ -31,31 +35,28 @@ function buildStatuses(archivos: ArchivoDoc[], expedienteEjercicio?: number): Do
   const excel = archivos.find((a) => a.tipo === "excel_cierre" || a.tipo.startsWith("excel"));
   const memorias = archivos.filter((a) => a.tipo === "memoria_word" || a.tipo === "memoria_pdf");
 
-  const memoriaActual = memorias
-    .map((m) => ({ ...m, meta: parseMeta(m.metadata) }))
-    .sort((a, b) => (b.meta.ejercicio ?? 0) - (a.meta.ejercicio ?? 0));
-
+  const memoriasConMeta = memorias.map((m) => ({ ...m, meta: parseMeta(m.metadata) }));
   const excelMeta = excel ? parseMeta(excel.metadata) : {};
-  const mainYear =
-    excelMeta.ejercicio ??
-    (expedienteEjercicio && expedienteEjercicio > 0 ? expedienteEjercicio : undefined) ??
-    memoriaActual[0]?.meta.ejercicio;
+
+  const { mainYear, priorYear } = resolveDocumentYears(
+    excelMeta,
+    memoriasConMeta.map((m) => m.meta),
+    expedienteEjercicio
+  );
 
   const memoriaPrincipal =
-    (mainYear !== undefined
-      ? memoriaActual.find((m) => m.meta.ejercicio === mainYear)
-      : undefined) ?? memoriaActual[0];
+    mainYear !== undefined
+      ? memoriasConMeta.find((m) => m.meta.ejercicio === mainYear)
+      : memoriasConMeta.sort(
+          (a, b) => (b.meta.ejercicio ?? 0) - (a.meta.ejercicio ?? 0)
+        )[0];
 
   const memoriaAnterior =
-    memoriaActual.find(
-      (m) =>
-        m.meta.ejercicio !== undefined &&
-        mainYear !== undefined &&
-        m.meta.ejercicio !== mainYear
-    ) ??
-    (memoriaActual.length > 1 && memoriaPrincipal
-      ? memoriaActual.find((m) => m.id !== memoriaPrincipal.id)
-      : undefined);
+    priorYear !== undefined
+      ? memoriasConMeta.find(
+          (m) => m.meta.ejercicio === priorYear && m.id !== memoriaPrincipal?.id
+        )
+      : memoriasConMeta.find((m) => m.id !== memoriaPrincipal?.id);
 
   return [
     {
@@ -65,11 +66,13 @@ function buildStatuses(archivos: ArchivoDoc[], expedienteEjercicio?: number): Do
       fileName: excel?.nombre,
     },
     {
-      label: "Memoria",
+      label: "Memoria (ejercicio actual)",
       loaded: !!memoriaPrincipal,
       detail: memoriaPrincipal?.meta.ejercicio
         ? `Ejercicio ${memoriaPrincipal.meta.ejercicio}`
-        : undefined,
+        : mainYear !== undefined
+          ? `Ejercicio ${mainYear}`
+          : undefined,
       fileName: memoriaPrincipal?.nombre,
     },
     {
@@ -77,7 +80,9 @@ function buildStatuses(archivos: ArchivoDoc[], expedienteEjercicio?: number): Do
       loaded: !!memoriaAnterior,
       detail: memoriaAnterior?.meta.ejercicio
         ? `Ejercicio ${memoriaAnterior.meta.ejercicio}`
-        : undefined,
+        : priorYear !== undefined
+          ? `Ejercicio ${priorYear}`
+          : undefined,
       fileName: memoriaAnterior?.nombre,
     },
   ];

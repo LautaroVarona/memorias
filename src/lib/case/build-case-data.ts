@@ -57,6 +57,12 @@ export function buildCaseData(input: BuildCaseDataInput): CaseData {
 
   if (input.memoria) {
     data.memory = memoriaToMemoryBlock(input.memoria);
+    const memoriaYear = input.memoria.datosClave?.ejercicio;
+    if (memoriaYear !== undefined && memoriaYear !== input.ejercicio) {
+      console.warn(
+        `[buildCaseData] Memoria asignada (${memoriaYear}) difiere del ejercicio de referencia (${input.ejercicio})`
+      );
+    }
   }
 
   if (input.priorYear) {

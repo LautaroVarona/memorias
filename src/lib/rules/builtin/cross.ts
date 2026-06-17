@@ -1,6 +1,6 @@
 import { getAccounts, hasStatement } from "@/lib/case/build-case-data";
 import { seniorExplanation, seniorExplanationPass, seniorIssue } from "@/lib/rules/helpers/explanation";
-import { buildCrossEvidence, enrichEvidence, withEuro, withText } from "@/lib/rules/helpers/evidence";
+import { buildCrossEvidence, enrichEvidence, withEuro, withExcelCell, withMemoryLocator, withText } from "@/lib/rules/helpers/evidence";
 import {
   breakdownGroupAccounts,
   dominantGroupCategory,
@@ -8,6 +8,8 @@ import {
   severityByGroupTotal,
 } from "@/lib/rules/helpers/group-accounts";
 import {
+  buildVinculadasExcelBreakdown,
+  categoryLabel,
   computeVinculadasTotals,
   diagnoseVinculadasMismatch,
   DIAGNOSIS_LABELS,
@@ -43,6 +45,11 @@ export const crossRules: RuleDefinition[] = [
       const dominantType = dominantGroupCategory(breakdown);
       const sourceText = data.memory?.statements.find((s) => s.type === "vinculadas")?.sourceText;
       const diagnosis = diagnoseVinculadasMismatch(totals, memorySaysNo);
+      const vinculadasIdx = data.memory?.fullText.toLowerCase().search(/vinculad|operaciones con partes vinculadas/i) ?? -1;
+      const memoryPage =
+        vinculadasIdx >= 0
+          ? Math.max(1, (data.memory!.fullText.slice(0, vinculadasIdx).match(/\f/g) || []).length + 1)
+          : undefined;
 
       const hasGroupBalance = totals.excel.total > 10_000;
       const descuadreTotal =
@@ -69,6 +76,9 @@ export const crossRules: RuleDefinition[] = [
           sourceText,
           diagnosis,
           descuadreTotal,
+          excelDoc: data.financials.libroCierre?.hojasDetectadas?.[0],
+          memoryDoc: data.memory?.metadata.archivo,
+          memoryPage,
         },
       };
     },
@@ -102,23 +112,67 @@ export const crossRules: RuleDefinition[] = [
       const totals = outcome.data.totals as ReturnType<typeof computeVinculadasTotals>;
       const sourceText = outcome.data.sourceText as string | undefined;
       const diagnosis = outcome.data.diagnosis as string;
+      const groupAccounts = (outcome.data.groupAccounts as CuentaNormalizada[]) ?? [];
+      const breakdown = buildVinculadasExcelBreakdown(groupAccounts);
+      const excelDoc = outcome.data.excelDoc as string | undefined;
 
       const ev = [
-        withEuro("excel", "Total vinculadas Excel", totals.excel.total, "high"),
-        withEuro("excel", "Clientes grupo", totals.excel.clientesGrupo, "medium"),
-        withEuro("excel", "Proveedores grupo", totals.excel.proveedoresGrupo, "medium"),
-        withEuro("excel", "Préstamos intragrupo", totals.excel.prestamos, "high"),
+        withEuro("excel", "Total vinculadas Excel", totals.excel.total, "high", undefined, {
+          sheet: "SYS_cliente",
+        }),
+        withEuro("excel", "Clientes grupo", totals.excel.clientesGrupo, "medium", undefined, {
+          sheet: "SYS_cliente",
+          group: "clientes",
+        }),
+        withEuro("excel", "Proveedores grupo", totals.excel.proveedoresGrupo, "medium", undefined, {
+          sheet: "SYS_cliente",
+          group: "proveedores",
+        }),
+        withEuro("excel", "Préstamos intragrupo", totals.excel.prestamos, "high", undefined, {
+          sheet: "SYS_cliente",
+          group: "prestamos",
+        }),
+        withEuro("excel", "Participaciones", totals.excel.participaciones, "medium", undefined, {
+          sheet: "SYS_cliente",
+          group: "participaciones",
+        }),
       ];
 
-      if (totals.memoria.total > 0) {
-        ev.push(withEuro("memory", "Total vinculadas memoria", totals.memoria.total, "high"));
+      for (const line of breakdown.slice(0, 12)) {
         ev.push(
-          withEuro("excel", "Diferencia Excel − memoria", totals.diferencia, "high")
+          withExcelCell(
+            `Cta ${line.cuenta} — ${line.descripcion}`,
+            line.saldo,
+            {
+              sheet: line.hoja ?? "SYS_cliente",
+              row: line.fila ?? 0,
+              column: line.columna,
+              documentName: excelDoc,
+            },
+            "high",
+            undefined,
+            categoryLabel(line.categoria)
+          )
         );
       }
 
+      if (totals.memoria.total > 0) {
+        ev.push(withEuro("memory", "Total vinculadas memoria", totals.memoria.total, "high"));
+        ev.push(withEuro("excel", "Diferencia Excel − memoria", totals.diferencia, "high"));
+      }
+
       if (sourceText) {
-        ev.push(withText("memory", "Afirmación en memoria", sourceText, "high"));
+        ev.push(
+          withMemoryLocator(
+            "Afirmación en memoria (apartado 09)",
+            sourceText,
+            {
+              documentName: outcome.data.memoryDoc as string | undefined,
+              page: outcome.data.memoryPage as number | undefined,
+            },
+            "high"
+          )
+        );
       }
 
       if (diagnosis) {

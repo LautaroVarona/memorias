@@ -76,6 +76,37 @@ export function formatEvidenceBadgeLabel(ev: EvidenceItem): string {
   return type === "excel" ? formatExcelBadgeLabel(ref) : formatMemoryBadgeLabel(ref);
 }
 
+export function hasStructuredLocator(ev: EvidenceItem): boolean {
+  return !!(
+    ev.documentName ||
+    ev.page !== undefined ||
+    ev.sheet ||
+    ev.row !== undefined ||
+    ev.column
+  );
+}
+
+export function formatEvidenceLocator(ev: EvidenceItem): string | undefined {
+  if (hasStructuredLocator(ev)) {
+    const type = normalizeEvidenceType(ev);
+    if (type === "memory") {
+      const parts: string[] = [];
+      if (ev.documentName) parts.push(ev.documentName);
+      if (ev.page !== undefined) parts.push(`pág. ${ev.page}`);
+      return parts.length > 0 ? parts.join(" · ") : undefined;
+    }
+    const parts: string[] = [];
+    if (ev.sheet) parts.push(`Hoja ${ev.sheet}`);
+    if (ev.row !== undefined) parts.push(`fila ${ev.row}`);
+    if (ev.column) parts.push(`col. ${ev.column}`);
+    return parts.length > 0 ? parts.join(" · ") : undefined;
+  }
+
+  const ref = evRef(ev);
+  const type = normalizeEvidenceType(ev);
+  return type === "excel" ? formatExcelBadgeLabel(ref) : formatMemoryBadgeLabel(ref);
+}
+
 export function evidenceDisplayValue(ev: EvidenceItem): string | undefined {
   const value = evValue(ev);
   const text = evText(ev);
