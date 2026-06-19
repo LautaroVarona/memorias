@@ -31,9 +31,16 @@ export interface RuleDefinition {
 export function evidenceToLegacy(ev: Evidence[]): Evidencia[] {
   return ev.map((e) => ({
     tipo: e.type === "memory" ? "memoria" : "excel",
-    referencia: e.reference,
+    referencia: e.origen?.ubicacion ?? e.reference,
     valor: e.formattedValue ?? e.value ?? e.text,
-    detalle: [e.text, e.importance ? `importancia: ${e.importance}` : ""].filter(Boolean).join(" · ") || e.formattedValue,
+    detalle: [
+      e.origen?.ubicacion,
+      e.origen?.detalleRaw ? `raw: ${e.origen.detalleRaw}` : "",
+      e.text,
+      e.importance ? `importancia: ${e.importance}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || e.formattedValue,
   }));
 }
 

@@ -1,3 +1,5 @@
+import type { TrackingValue } from "./tracking";
+
 export type TipoEmpresa = "holding" | "comercial" | "industrial" | "desconocido";
 export type Severidad = "critical" | "warning" | "pass";
 export type RuleCategory =
@@ -164,6 +166,22 @@ export interface NotaDespacho {
   fila: number;
 }
 
+/** Datos fiscales extraídos de la hoja CALCIS (búsqueda semántica por etiquetas) */
+export interface CalcisData {
+  hoja: string;
+  resultadoContable: TrackingValue<number> | null;
+  ajustes: TrackingValue<number> | null;
+  baseImponible: TrackingValue<number> | null;
+  cuotaIntegra: TrackingValue<number> | null;
+  retenciones: TrackingValue<number> | null;
+  cuotaDiferencial: TrackingValue<number> | null;
+  tipoImpositivo: TrackingValue<number> | null;
+  reservaCapitalizacion?: TrackingValue<number> | null;
+}
+
+/** @deprecated Usar CalcisData */
+export type CalcisHojaDatos = CalcisData;
+
 /** Epígrafes extraídos de hojas ministeriales auxiliares (inmovilizado, calcis, etc.) */
 export interface HojaMinisterio {
   nombre: string;
@@ -189,6 +207,8 @@ export interface LibroCierre {
   notas: NotaDespacho[];
   /** Hojas ministeriales auxiliares (inmovilizado, ajuis, calcis, bonificación, etc.) */
   hojasMinisterio?: HojaMinisterio[];
+  /** Datos fiscales de CALCIS (búsqueda semántica por etiquetas) */
+  calcis?: CalcisData;
   /** Hojas del libro que se han leído (solo whitelist) */
   hojasDetectadas: string[];
 }
@@ -207,6 +227,10 @@ export interface RuleResult {
   type: RuleCategory;
   severidad: Severidad;
   severity: "critical" | "error" | "warning" | "ok";
+  /** Resultado de ejecución: omitida por guardrail anti-cascada u otra razón */
+  status?: "executed" | "skip";
+  /** Código de motivo cuando status === "skip" */
+  skipReason?: string;
   mensaje: string;
   explanation: string;
   /** Causa probable del problema */

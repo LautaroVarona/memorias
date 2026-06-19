@@ -237,6 +237,7 @@ export function ExpedienteDetailContent() {
           motivoGlobal={data.score?.motivoGlobal}
           errores={errores}
           warnings={warnings}
+          caseData={data.caseData}
         />
       ) : (
         <div className="space-y-6">

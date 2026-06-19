@@ -1,17 +1,30 @@
-import { parseImporte, detectarTablasAnunciadasAusentes } from "@/lib/parsers/memoria/extractors";
+import { parseImporte, detectarTablasAnunciadasAusentes, tablaEsCualitativa } from "@/lib/parsers/memoria/extractors";
 import { formatEuro } from "@/lib/rules/helpers/accounts";
-import { withEuro, withMemoryLocator, withText } from "@/lib/rules/helpers/evidence";
+import { withEuro, withMemoryLocator, withText, fromTrackingValue } from "@/lib/rules/helpers/evidence";
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
+import { saldoCierreTracked } from "@/lib/tracking/excel";
+import { unwrapValue } from "@/types/tracking";
 import apartadosPGC from "../../../../data/pgc/apartados-memoria.json";
 import type { CaseData } from "@/types/case-data";
-import type { CuentaNormalizada, NotaDespacho } from "@/types/domain";
+import type { CalcisData, CuentaNormalizada, NotaDespacho } from "@/types/domain";
+import type { TrackingValue } from "@/types/tracking";
 import type { RuleDefinition } from "../types";
+import { withinTolerance } from "../types";
 
 /**
  * Reglas específicas del flujo real del despacho: libro de cierre .xlsm
  * (SYS_cliente, A3SOC, BALANCE, PG, PENDIENTES, INCIDENCIAS) cruzado con
  * la memoria .DOC generada por A3SOC.
  */
+
+function resolveCalcisData(data: CaseData): CalcisData | undefined {
+  return data.excel?.calcis ?? data.financials.libroCierre?.calcis;
+}
+
+function valorAbsolutoTracked(tv: TrackingValue<number> | null | undefined): number | undefined {
+  if (tv === null || tv === undefined) return undefined;
+  return Math.abs(unwrapValue(tv)!);
+}
 
 function saldoPorPrefijos(cuentas: CuentaNormalizada[], prefijos: string[]): number {
   return cuentas
@@ -332,48 +345,241 @@ export const cierreRules: RuleDefinition[] = [
   },
   {
     id: "CIERRE_005",
-    title: "Impuesto corriente: memoria vs cuenta 6300",
+    title: "Impuesto corriente: triangulación memoria, CALCIS y cuenta 6300",
     type: "fiscal",
     defaultSeverity: "critical",
     normativa: "PGC NRV 13ª",
-    referencia: "Apartado 08 (situación fiscal) vs cuenta 6300",
+    referencia: "Apartado 08 vs CALCIS (cuota diferencial) vs cuenta 6300",
     execute(data) {
       if (!ejerciciosAlineados(data)) return { passed: true, data: { skip: true } };
-      const impuestoMemoria = data.memory?.keyData.impuestoCorriente;
+
+      const impuestoMemoriaRaw = data.memory?.keyData.impuestoCorriente;
+      const calcis = resolveCalcisData(data);
+      const cuotaCalcisTracked = calcis?.cuotaDiferencial ?? null;
       const libro = data.financials.libroCierre;
-      if (impuestoMemoria === undefined || !libro) return { passed: true, data: { skip: true } };
-      const { valor, fuente } = saldoCierre(libro, ["6300"]);
-      const impuestoExcel = Math.abs(valor);
-      const cuadra = Math.abs(Math.abs(impuestoMemoria) - impuestoExcel) <= 1;
+
+      const impuestoMemoria =
+        impuestoMemoriaRaw !== undefined ? Math.abs(impuestoMemoriaRaw) : undefined;
+      const cuotaCalcis = valorAbsolutoTracked(cuotaCalcisTracked);
+
+      const cuenta6300Tracked = libro ? saldoCierreTracked(libro, ["6300"]) : undefined;
+      const impuestoContabilidad =
+        cuenta6300Tracked !== undefined ? Math.abs(unwrapValue(cuenta6300Tracked)!) : undefined;
+
+      const puedeCalculo = impuestoMemoria !== undefined && cuotaCalcis !== undefined;
+      const puedeContabilizacion = cuotaCalcis !== undefined && impuestoContabilidad !== undefined;
+
+      if (!puedeCalculo && !puedeContabilizacion) {
+        return {
+          passed: true,
+          data: {
+            skip: true,
+            reason: "sin_datos_triangulacion",
+            calcis,
+            etiquetasCalcisFaltantes: calcis
+              ? [
+                  !calcis.resultadoContable && "resultadoContable",
+                  !calcis.cuotaDiferencial && "cuotaDiferencial",
+                ].filter(Boolean)
+              : ["calcis"],
+          },
+        };
+      }
+
+      const TOL = 1;
+      const cuadraCalculo = puedeCalculo
+        ? withinTolerance(impuestoMemoria!, cuotaCalcis!, TOL)
+        : undefined;
+      const cuadraContabilizacion = puedeContabilizacion
+        ? withinTolerance(cuotaCalcis!, impuestoContabilidad!, TOL)
+        : undefined;
+
+      const piernas = [cuadraCalculo, cuadraContabilizacion].filter((v) => v !== undefined);
+      const passed = piernas.length > 0 && piernas.every(Boolean);
+
+      let sugerencia: string | undefined;
+      if (!passed) {
+        if (cuadraCalculo === false && cuadraContabilizacion !== false) {
+          sugerencia =
+            "Regenere el apartado 08: el impuesto corriente de la memoria no coincide con la cuota diferencial de CALCIS.";
+        } else if (cuadraCalculo !== false && cuadraContabilizacion === false) {
+          sugerencia =
+            "Contabilice el asiento de cierre en la cuenta 6300 con el importe de la cuota diferencial de CALCIS.";
+        } else {
+          sugerencia =
+            "Revise la memoria, la hoja CALCIS y el asiento de la cuenta 6300: hay descuadres en el cálculo y/o en la contabilización.";
+        }
+      }
+
       return {
-        passed: cuadra,
+        passed,
         severity: "critical",
-        sugerencia: "Actualice el apartado de situación fiscal con el gasto por impuesto corriente real.",
-        data: { impuestoMemoria: Math.abs(impuestoMemoria), impuestoExcel, fuente },
+        sugerencia,
+        data: {
+          impuestoMemoria,
+          cuotaCalcis,
+          impuestoContabilidad,
+          cuadraCalculo,
+          cuadraContabilizacion,
+          puedeCalculo,
+          puedeContabilizacion,
+          calcis,
+          cuotaCalcisTracked,
+          cuenta6300Tracked,
+          etiquetasCalcisFaltantes: calcis
+            ? [
+                !calcis.resultadoContable && "resultadoContable",
+                !calcis.cuotaDiferencial && "cuotaDiferencial",
+              ].filter(Boolean)
+            : ["calcis"],
+        },
       };
     },
     explanation(outcome) {
       if (outcome.passed) {
-        if (outcome.data.skip) return seniorExplanationPass("No hay datos suficientes para cruzar el impuesto corriente.");
-        const d = outcome.data as { impuestoExcel: number; fuente: string };
+        if (outcome.data.skip) {
+          const faltantes = (outcome.data.etiquetasCalcisFaltantes as string[] | undefined) ?? [];
+          const detalleCalcis =
+            faltantes.length > 0
+              ? ` Etiquetas CALCIS no localizadas: ${faltantes.join(", ")}.`
+              : "";
+          return seniorExplanationPass(
+            `No hay datos suficientes para triangular el impuesto corriente (memoria, CALCIS y cuenta 6300).${detalleCalcis}`
+          );
+        }
+        const d = outcome.data as {
+          impuestoMemoria?: number;
+          cuotaCalcis?: number;
+          impuestoContabilidad?: number;
+        };
+        const partes: string[] = [];
+        if (d.impuestoMemoria !== undefined && d.cuotaCalcis !== undefined) {
+          partes.push(
+            `memoria y CALCIS cuadran (${formatEuro(d.cuotaCalcis!)})`
+          );
+        }
+        if (d.cuotaCalcis !== undefined && d.impuestoContabilidad !== undefined) {
+          partes.push(
+            `CALCIS y cuenta 6300 cuadran (${formatEuro(d.impuestoContabilidad!)})`
+          );
+        }
         return seniorExplanationPass(
-          `El impuesto corriente de la memoria coincide con la cuenta 6300 en ${d.fuente} (${formatEuro(d.impuestoExcel)}).`
+          `Triangulación del impuesto corriente correcta: ${partes.join("; ")}.`
         );
       }
-      const d = outcome.data as { impuestoMemoria: number; impuestoExcel: number; fuente: string };
+
+      const d = outcome.data as {
+        impuestoMemoria?: number;
+        cuotaCalcis?: number;
+        impuestoContabilidad?: number;
+        cuadraCalculo?: boolean;
+        cuadraContabilizacion?: boolean;
+      };
+
+      const fallos: string[] = [];
+      if (d.cuadraCalculo === false) {
+        fallos.push(
+          `cálculo en Word: memoria ${formatEuro(d.impuestoMemoria!)} ≠ CALCIS ${formatEuro(d.cuotaCalcis!)}`
+        );
+      }
+      if (d.cuadraContabilizacion === false) {
+        fallos.push(
+          `contabilización: CALCIS ${formatEuro(d.cuotaCalcis!)} ≠ cuenta 6300 ${formatEuro(d.impuestoContabilidad!)}`
+        );
+      }
+
+      const diagnostico =
+        d.cuadraCalculo === false && d.cuadraContabilizacion !== false
+          ? "El cálculo del IS en la memoria no refleja la cuota diferencial de CALCIS; la contabilización en 6300 parece coherente con CALCIS."
+          : d.cuadraCalculo !== false && d.cuadraContabilizacion === false
+            ? "La memoria coincide con CALCIS, pero falta o es incorrecto el asiento en la cuenta 6300."
+            : "Hay descuadres tanto en la cifra de la memoria como en la contabilización del impuesto corriente.";
+
       return seniorExplanation(
-        `El impuesto corriente declarado en la memoria (${formatEuro(d.impuestoMemoria)}) no coincide con la cuenta 6300 en ${d.fuente} (${formatEuro(d.impuestoExcel)}).`,
-        `La cifra del apartado de situación fiscal debe salir del cierre definitivo; la discrepancia indica memoria desactualizada o IS recalculado después de generar la memoria.`,
-        `Regenere el apartado 08 tras cerrar el cálculo del Impuesto sobre Sociedades.`
+        `Triangulación del impuesto corriente fallida — ${fallos.join("; ")}.`,
+        diagnostico,
+        outcome.sugerencia ??
+          "Regenere el apartado 08 tras cerrar CALCIS y verifique el asiento de la cuenta 6300."
       );
     },
     evidence(outcome) {
       if (outcome.passed) return [];
-      const d = outcome.data as { impuestoMemoria: number; impuestoExcel: number; fuente: string };
-      return [
-        withEuro("memory", "Memoria — impuesto corriente", d.impuestoMemoria, "high"),
-        withEuro("excel", `${d.fuente} — cuenta 6300`, d.impuestoExcel, "high"),
-      ];
+
+      const d = outcome.data as {
+        impuestoMemoria?: number;
+        cuotaCalcis?: number;
+        impuestoContabilidad?: number;
+        cuadraCalculo?: boolean;
+        cuadraContabilizacion?: boolean;
+        cuotaCalcisTracked?: TrackingValue<number> | null;
+        cuenta6300Tracked?: TrackingValue<number>;
+      };
+
+      const ev: ReturnType<RuleDefinition["evidence"]> = [];
+
+      if (d.cuadraCalculo === false && d.impuestoMemoria !== undefined) {
+        ev.push(
+          withEuro(
+            "memory",
+            "Memoria — impuesto corriente (validación cálculo)",
+            d.impuestoMemoria,
+            "high",
+            undefined,
+            { group: "calculo" }
+          )
+        );
+      }
+
+      if (d.cuadraCalculo === false && d.cuotaCalcisTracked) {
+        ev.push(
+          fromTrackingValue(
+            d.cuotaCalcisTracked,
+            "high",
+            "CALCIS — cuota diferencial (validación cálculo)",
+            undefined,
+            { group: "calculo" }
+          )
+        );
+      }
+
+      if (d.cuadraContabilizacion === false && d.cuotaCalcisTracked) {
+        ev.push(
+          fromTrackingValue(
+            d.cuotaCalcisTracked,
+            "high",
+            "CALCIS — cuota diferencial (validación contabilización)",
+            undefined,
+            { group: "contabilizacion" }
+          )
+        );
+      }
+
+      if (d.cuadraContabilizacion === false) {
+        if (d.cuenta6300Tracked) {
+          ev.push(
+            fromTrackingValue(
+              d.cuenta6300Tracked,
+              "high",
+              "Contabilidad — cuenta 6300 (validación contabilización)",
+              undefined,
+              { group: "contabilizacion" }
+            )
+          );
+        } else if (d.impuestoContabilidad !== undefined) {
+          ev.push(
+            withEuro(
+              "excel",
+              "Contabilidad — cuenta 6300 (validación contabilización)",
+              d.impuestoContabilidad,
+              "high",
+              undefined,
+              { group: "contabilizacion" }
+            )
+          );
+        }
+      }
+
+      return ev;
     },
   },
   {
@@ -422,6 +628,91 @@ export const cierreRules: RuleDefinition[] = [
     },
   },
   {
+    id: "CIERRE_010",
+    title: "Correlatividad de apartados de la memoria abreviada",
+    type: "formal",
+    defaultSeverity: "error",
+    normativa: "PGC — contenido de la memoria abreviada",
+    referencia: "Orden y numeración correlativa de apartados 01 a 11",
+    execute(data) {
+      if (!data.memory) return { passed: true, data: { skip: true } };
+      if (data.memory.keyData.tipoMemoria && data.memory.keyData.tipoMemoria !== "abreviada") {
+        return { passed: true, data: { skip: true } };
+      }
+
+      const numerados = data.memory.sections.filter(
+        (s): s is typeof s & { numero: number } => s.numero !== undefined
+      );
+      if (numerados.length < 2) return { passed: true, data: { skip: true } };
+
+      const numeros = numerados.map((s) => s.numero);
+      let violacion: { anterior: number; actual: number; tipo: "desorden" | "salto" } | null = null;
+
+      for (let i = 1; i < numeros.length; i++) {
+        const anterior = numeros[i - 1];
+        const actual = numeros[i];
+        if (actual <= anterior) {
+          violacion = { anterior, actual, tipo: "desorden" };
+          break;
+        }
+        if (actual !== anterior + 1) {
+          violacion = { anterior, actual, tipo: "salto" };
+          break;
+        }
+      }
+
+      if (!violacion) {
+        return { passed: true, data: { numeros, orden: numerados.map((s) => `${s.id} ${s.titulo}`) } };
+      }
+
+      const fmt = (n: number) => String(n).padStart(2, "0");
+      const diagnosis = `La numeración de los apartados no es correlativa. Se ha detectado un salto o desorden entre el apartado ${fmt(violacion.anterior)} y el ${fmt(violacion.actual)}.`;
+
+      return {
+        passed: false,
+        severity: "error",
+        diagnosis,
+        sugerencia: "Reordene los apartados y corrija la numeración para que sea estrictamente correlativa (01, 02, 03…).",
+        data: { violacion, numeros, orden: numerados.map((s) => `${s.id} ${s.titulo}`) },
+      };
+    },
+    explanation(outcome) {
+      if (outcome.passed) {
+        if (outcome.data.skip) {
+          return seniorExplanationPass("No aplica la verificación de correlatividad de apartados de memoria abreviada.");
+        }
+        return seniorExplanationPass("La numeración de los apartados es correlativa y aparece en orden ascendente.");
+      }
+      const violacion = outcome.data.violacion as { anterior: number; actual: number; tipo: "desorden" | "salto" };
+      const fmt = (n: number) => String(n).padStart(2, "0");
+      const detalle =
+        violacion.tipo === "desorden"
+          ? `el apartado ${fmt(violacion.actual)} aparece después del ${fmt(violacion.anterior)}`
+          : `hay un salto del apartado ${fmt(violacion.anterior)} al ${fmt(violacion.actual)}`;
+      return seniorExplanation(
+        outcome.diagnosis ??
+          `La numeración de los apartados no es correlativa: ${detalle}.`,
+        `Una memoria con apartados fuera de orden o con huecos en la numeración no cumple la estructura del modelo abreviado y puede generar defectos de depósito.`,
+        `Revise el documento y asegúrese de que cada apartado sigue al anterior sin saltos ni inversiones.`
+      );
+    },
+    evidence(outcome) {
+      if (outcome.passed) return [];
+      const violacion = outcome.data.violacion as { anterior: number; actual: number };
+      const orden = (outcome.data.orden as string[]) ?? [];
+      const fmt = (n: number) => String(n).padStart(2, "0");
+      return [
+        withText(
+          "memory",
+          `Apartado ${fmt(violacion.anterior)} → ${fmt(violacion.actual)}`,
+          "Numeración no correlativa detectada",
+          "high"
+        ),
+        withText("memory", "Orden detectado en el documento", orden.join(" → "), "medium"),
+      ];
+    },
+  },
+  {
     id: "CIERRE_007",
     title: "Tablas vacías o anunciadas sin contenido",
     type: "formal",
@@ -430,7 +721,9 @@ export const cierreRules: RuleDefinition[] = [
     referencia: "Tablas de detalle de la memoria",
     execute(data) {
       if (!data.memory) return { passed: true, data: { skip: true } };
-      const vacias = data.memory.tables.filter((t) => t.vacia && t.filas.length > 0);
+      const vacias = data.memory.tables.filter(
+        (t) => t.vacia && t.filas.length > 0 && !tablaEsCualitativa(t.cabecera, t.filas)
+      );
       const anunciadas = detectarTablasAnunciadasAusentes(data.memory.fullText);
       return {
         passed: vacias.length === 0 && anunciadas.length === 0,

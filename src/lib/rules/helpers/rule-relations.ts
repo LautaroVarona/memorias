@@ -9,7 +9,7 @@ export const RULE_RELATION_GROUPS: string[][] = [
   ["CIERRE_008", "CLOSURE_001"],
   ["CROSS_001", "PGC_001"],
   ["TEMP_001", "TEMP_002", "TEMP_003", "TEMP_004"],
-  ["CIERRE_006", "CIERRE_007", "CIERRE_009", "FORMAL_"],
+  ["CIERRE_006", "CIERRE_007", "CIERRE_009", "CIERRE_010", "FORMAL_"],
   ["INTER_001", "INTER_002", "INTER_003", "INTER_004", "ANOM_"],
   ["CONSISTENCIA_GLOBAL_001", "CROSS_004", "TIPO_COM_"],
   ["NARR_ADV_001", "TEMP_002"],
@@ -25,7 +25,7 @@ function topicOf(ruleId: string): string {
 }
 
 function isFailure(r: RuleResult): boolean {
-  return r.severity !== "ok";
+  return r.severity !== "ok" && r.status !== "skip" && !r.tags?.includes("guardrail_skip");
 }
 
 /** Oculta reglas OK relacionadas cuando existe un fallo en el mismo tema */

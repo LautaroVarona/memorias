@@ -1,8 +1,7 @@
 import type { ValidacionView } from "@/components/review/types";
 import { evaluateGlobalClosure } from "@/lib/rules/global-evaluation";
 import { computeCaseScore } from "@/lib/rules/scoring";
-import type { CaseData } from "@/types/case-data";
-import type { Evidence } from "@/types/case-data";
+import type { CaseData, Evidence } from "@/types/case-data";
 import {
   getExpediente,
   listArchivos,
@@ -16,7 +15,7 @@ import {
 } from "@/lib/storage/expediente-store";
 import type { ExpedienteListItem } from "@/lib/storage/types";
 import type { ProcessOutput } from "@/lib/process/expediente-core";
-import { processExpedienteLocal } from "@/lib/process/client-process";
+import { processExpedienteRemote } from "@/lib/process/remote-process";
 
 export interface ExpedienteDetail {
   id: string;
@@ -47,6 +46,7 @@ export interface ExpedienteDetail {
     globalEstado?: "ok" | "revisar" | "no_formulable";
     motivoGlobal?: string;
   };
+  caseData?: CaseData | null;
 }
 
 function parseValidaciones(validaciones: Awaited<ReturnType<typeof listValidaciones>>): ValidacionView[] {
@@ -79,13 +79,14 @@ function parseValidaciones(validaciones: Awaited<ReturnType<typeof listValidacio
 }
 
 function buildResumen(validaciones: ValidacionView[]) {
+  const scored = validaciones.filter((v) => !v.tags?.includes("guardrail_skip"));
   return {
-    critical: validaciones.filter((v) => v.severidad === "critical").length,
-    warning: validaciones.filter((v) => v.severidad === "warning").length,
-    pass: validaciones.filter((v) => v.severidad === "pass").length,
-    total: validaciones.length,
-    errores: validaciones.filter((v) => v.severidad === "critical").length,
-    warnings: validaciones.filter((v) => v.severidad === "warning").length,
+    critical: scored.filter((v) => v.severidad === "critical").length,
+    warning: scored.filter((v) => v.severidad === "warning").length,
+    pass: scored.filter((v) => v.severidad === "pass").length,
+    total: scored.length,
+    errores: scored.filter((v) => v.severidad === "critical").length,
+    warnings: scored.filter((v) => v.severidad === "warning").length,
   };
 }
 
@@ -147,6 +148,14 @@ export async function fetchExpedienteDetail(id: string): Promise<ExpedienteDetai
   const validaciones = parseValidaciones(await listValidaciones(id));
   const resumen = buildResumen(validaciones);
   const score = computeScore(validaciones, expediente.caseDataSnapshot, expediente.scoreSnapshot);
+  let caseData: CaseData | null = null;
+  if (expediente.caseDataSnapshot) {
+    try {
+      caseData = JSON.parse(expediente.caseDataSnapshot) as CaseData;
+    } catch {
+      caseData = null;
+    }
+  }
 
   return {
     id: expediente.id,
@@ -163,6 +172,7 @@ export async function fetchExpedienteDetail(id: string): Promise<ExpedienteDetai
     validaciones,
     resumen,
     score,
+    caseData,
   };
 }
 
@@ -194,7 +204,7 @@ export async function runExpedienteProcess(
   await updateExpediente(expedienteId, { estado: "procesando" });
 
   try {
-    const data = await processExpedienteLocal({
+    const data = await processExpedienteRemote({
       expedienteId,
       cliente: expediente.cliente,
       ejercicio: expediente.ejercicio,

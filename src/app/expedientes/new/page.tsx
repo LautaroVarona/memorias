@@ -53,8 +53,8 @@ function NewExpedienteForm() {
           <Dropzone onFilesSelected={setFiles} disableInteraction={loading} />
           {files.length > 0 && (
             <p className="mt-2 text-xs text-slate-500">
-              {files.length} archivo(s) seleccionado(s). La subida tarda unos segundos; la
-              revisión se ejecuta al abrir el expediente.
+              {files.length} archivo(s) listo(s) para subir. Puedes seguir añadiendo más
+              arrastrando o seleccionando otro archivo antes de pulsar el botón.
             </p>
           )}
         </div>

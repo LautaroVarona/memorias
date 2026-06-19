@@ -6,6 +6,29 @@ interface ComparativeValuesProps {
   tone?: "critical" | "warning";
 }
 
+function parseEuroAmount(raw: string): number | null {
+  const normalized = raw
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  const n = parseFloat(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatDifference(excel?: string, memory?: string): string | null {
+  if (!excel || !memory) return null;
+  const a = parseEuroAmount(excel);
+  const b = parseEuroAmount(memory);
+  if (a === null || b === null) return null;
+  const diff = a - b;
+  const formatted = new Intl.NumberFormat("es-ES", {
+    style: "currency",
+    currency: "EUR",
+  }).format(Math.abs(diff));
+  const sign = diff >= 0 ? "+" : "−";
+  return `${sign}${formatted}`;
+}
+
 export function ComparativeValues({
   excelValue,
   memoryValue,
@@ -14,35 +37,40 @@ export function ComparativeValues({
   if (!excelValue && !memoryValue) return null;
 
   const mismatch = valuesMismatch(excelValue, memoryValue);
-  const accent =
+  const difference = formatDifference(excelValue, memoryValue);
+  const diffAccent =
     tone === "critical"
-      ? "text-red-700 font-semibold"
-      : "text-amber-700 font-semibold";
+      ? "text-red-600 font-semibold"
+      : "text-amber-600 font-semibold";
 
   return (
-    <div className="mt-4 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 sm:grid-cols-2">
-      <div className="bg-slate-50 px-4 py-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+    <div className="mt-2 grid grid-cols-3 divide-x divide-slate-200 overflow-hidden rounded border border-slate-200 bg-slate-50/80 text-xs">
+      <div className="px-2 py-1.5">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
           Contabilidad (Excel)
         </p>
-        <p
-          className={`mt-1 font-mono text-base tabular-nums ${
-            mismatch && excelValue ? accent : "text-slate-900"
-          }`}
-        >
+        <p className="mt-0.5 font-mono tabular-nums text-slate-900">
           {excelValue ?? "—"}
         </p>
       </div>
-      <div className="bg-slate-50 px-4 py-3 sm:border-l sm:border-slate-200">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+      <div className="px-2 py-1.5">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
           Memoria (Word)
         </p>
+        <p className="mt-0.5 font-mono tabular-nums text-slate-900">
+          {memoryValue ?? "—"}
+        </p>
+      </div>
+      <div className="px-2 py-1.5">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+          Diferencia
+        </p>
         <p
-          className={`mt-1 font-mono text-base tabular-nums ${
-            mismatch && memoryValue ? accent : "text-slate-900"
+          className={`mt-0.5 font-mono tabular-nums ${
+            mismatch && difference ? diffAccent : "text-slate-500"
           }`}
         >
-          {memoryValue ?? "—"}
+          {difference ?? "—"}
         </p>
       </div>
     </div>

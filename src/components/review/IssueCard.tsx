@@ -1,320 +1,137 @@
-import type { ParsedIssue, ValidacionView } from "./types";
-
-import { EvidenceBadge, VinculadasBreakdown } from "./EvidenceBadge";
-
-import { ComparativeValues } from "./ComparativeValues";
-
-import { IssueMetaBlock } from "./IssueMetaBlock";
-
-import { ExpandableText } from "./ExpandableText";
-
-import { enrichIssue } from "./parse-issue";
-
-
-
-interface IssueCardProps {
-
-  validacion: ValidacionView;
-
-  variant: "critical" | "warning";
-
-}
-
-
-
-function EvidenceSection({
-
-  evidencia,
-
-  tone,
-
-  ruleId,
-
-}: {
-
-  evidencia: ValidacionView["evidencia"];
-
-  tone: "critical" | "warning";
-
-  ruleId: string;
-
-}) {
-
-  if (evidencia.length === 0) return null;
-
-
-
-  const labelClass =
-
-    tone === "critical"
-
-      ? "text-red-700/70"
-
-      : "text-amber-700/80";
-
-  const summaryItems =
-    ruleId === "CROSS_001"
-      ? evidencia.filter((e) => !e.group || !e.reference?.startsWith("Cta "))
-      : evidencia;
-
-
-
-  return (
-
-    <div className="mt-5 border-t border-current/10 pt-4">
-
-      <p className={`mb-3 text-[11px] font-semibold uppercase tracking-wide ${labelClass}`}>
-
-        Evidencia
-
-      </p>
-
-      <div className="space-y-2">
-
-        {summaryItems.map((ev, i) => (
-
-          <EvidenceBadge
-            key={i}
-            evidence={ev}
-            prominentLocator={ruleId === "CROSS_001"}
-          />
-
-        ))}
-
-      </div>
-
-      {ruleId === "CROSS_001" && <VinculadasBreakdown evidencia={evidencia} />}
-
-    </div>
-
-  );
-
-}
-
-
-
-export function IssueCard({ validacion, variant }: IssueCardProps) {
-
-  const issue: ParsedIssue = enrichIssue(validacion);
-
-  const title = validacion.title ?? validacion.ruleId;
-
-  const hasComparison = !!(issue.excelValue || issue.memoryValue);
-
-
-
-  if (variant === "critical") {
-
-    return (
-
-      <article className="rounded-xl border border-red-100 border-l-4 border-l-red-500 bg-red-50/60 p-6">
-
-        <h3 className="text-base font-semibold leading-snug text-red-950">{title}</h3>
-
-
-
-        {hasComparison ? (
-
-          <ComparativeValues
-
-            excelValue={issue.excelValue}
-
-            memoryValue={issue.memoryValue}
-
-            tone="critical"
-
-          />
-
-        ) : (
-
-          issue.what && (
-
-            <div className="mt-3">
-
-              <ExpandableText text={issue.what} className="text-red-900/90" />
-
-            </div>
-
-          )
-
-        )}
-
-
-
-        {issue.diagnosis && (
-
-          <IssueMetaBlock kind="diagnosis" tone="critical">
-
-            {issue.diagnosis}
-
-          </IssueMetaBlock>
-
-        )}
-
-
-
-        {issue.impact && (
-
-          <IssueMetaBlock kind="impact" tone="critical">
-
-            {issue.impact}
-
-          </IssueMetaBlock>
-
-        )}
-
-
-
-        {issue.action && (
-
-          <IssueMetaBlock kind="action" tone="critical">
-
-            {issue.action}
-
-          </IssueMetaBlock>
-
-        )}
-
-
-
-        <EvidenceSection
-          evidencia={validacion.evidencia}
-          tone="critical"
-          ruleId={validacion.ruleId}
-        />
-
-      </article>
-
-    );
-
-  }
-
-
-
-  return (
-
-    <article className="rounded-xl border border-amber-100 border-l-4 border-l-amber-400 bg-amber-50/50 p-4">
-
-      <h3 className="text-sm font-semibold leading-snug text-amber-950">{title}</h3>
-
-
-
-      {hasComparison ? (
-
-        <ComparativeValues
-
-          excelValue={issue.excelValue}
-
-          memoryValue={issue.memoryValue}
-
-          tone="warning"
-
-        />
-
-      ) : (
-
-        (issue.keyFact || issue.what) && (
-
-          <div className="mt-2">
-
-            {issue.what && issue.what.length > 80 ? (
-
-              <ExpandableText text={issue.what} className="text-amber-900 font-medium" />
-
-            ) : (
-
-              <p className="text-sm font-medium text-amber-900">
-
-                {issue.keyFact ?? issue.what.split(".")[0]}
-
-              </p>
-
-            )}
-
-          </div>
-
-        )
-
-      )}
-
-
-
-      {validacion.tags?.includes("riesgo_fiscal") && (
-
-        <span className="mt-2 inline-block rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-
-          Riesgo fiscal
-
-        </span>
-
-      )}
-
-
-
-      {issue.diagnosis && (
-
-        <IssueMetaBlock kind="diagnosis" tone="warning">
-
-          {issue.diagnosis}
-
-        </IssueMetaBlock>
-
-      )}
-
-
-
-      {issue.impact && (
-
-        <IssueMetaBlock kind="impact" tone="warning">
-
-          {issue.impact}
-
-        </IssueMetaBlock>
-
-      )}
-
-
-
-      {issue.action && (
-
-        <IssueMetaBlock kind="action" tone="warning" clamp>
-
-          {issue.action}
-
-        </IssueMetaBlock>
-
-      )}
-
-
-
-      {validacion.evidencia.length > 0 && (
-
-        <div className="mt-3 space-y-2">
-
-          {(validacion.ruleId === "CROSS_001"
-            ? validacion.evidencia.filter((e) => !e.group || !e.reference?.startsWith("Cta "))
-            : validacion.evidencia
-          ).map((ev, i) => (
-
-            <EvidenceBadge
-              key={i}
-              evidence={ev}
-              compact={validacion.evidencia.length > 2 && validacion.ruleId !== "CROSS_001"}
-              prominentLocator={validacion.ruleId === "CROSS_001"}
-            />
-
-          ))}
-
-          {validacion.ruleId === "CROSS_001" && (
-            <VinculadasBreakdown evidencia={validacion.evidencia} />
-          )}
-
-        </div>
-
-      )}
-
-    </article>
-
-  );
-
-}
+"use client";
+
+import type { ParsedIssue, ValidacionView } from "./types";
+import { EvidenceBadge } from "./EvidenceBadge";
+import { VinculadasEvidenceFromEvidencia } from "./EvidenceBlock";
+import { ComparativeValues } from "./ComparativeValues";
+import { ExpandableText } from "./ExpandableText";
+import { CopyTextButton } from "./CopyTextButton";
+import { InterannualTextDiff } from "./InterannualTextDiff";
+import { formatEvidenceListForCopy } from "./evidence-utils";
+import { SeverityBadge, severityBorderClass } from "./SeverityBadge";
+import { scrollToApartado } from "./scroll-to-apartado";
+import {
+  enrichIssue,
+  extractApartadoRef,
+  isRedundantMeta,
+  supportsInterannualDiff,
+} from "./parse-issue";
+
+interface IssueCardProps {
+  validacion: ValidacionView;
+  variant: "critical" | "warning";
+}
+
+function ApartadoLink({ apartadoRef }: { apartadoRef: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => scrollToApartado(apartadoRef)}
+      className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-600 transition hover:bg-blue-50 hover:text-blue-700"
+      title={`Ir al apartado ${apartadoRef}`}
+    >
+      Ap. {apartadoRef}
+      <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+        <path
+          fillRule="evenodd"
+          d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z"
+          clipRule="evenodd"
+        />
+      </svg>
+    </button>
+  );
+}
+
+function EvidenceSection({
+  evidencia,
+  ruleId,
+}: {
+  evidencia: ValidacionView["evidencia"];
+  ruleId: string;
+}) {
+  if (evidencia.length === 0) return null;
+
+  if (ruleId === "CROSS_001") {
+    return (
+      <div className="mt-2 border-t border-slate-100 pt-2">
+        <VinculadasEvidenceFromEvidencia evidencia={evidencia} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 border-t border-slate-100 pt-2">
+      <div className="space-y-1">
+        {evidencia.map((ev, i) => (
+          <EvidenceBadge key={i} evidence={ev} compact />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function IssueCard({ validacion, variant }: IssueCardProps) {
+  const issue: ParsedIssue = enrichIssue(validacion);
+  const title = validacion.title ?? validacion.ruleId;
+  const hasComparison = !!(issue.excelValue || issue.memoryValue);
+  const apartadoRef = extractApartadoRef(validacion);
+  const showDiff = supportsInterannualDiff(validacion.ruleId);
+  const copyText = formatEvidenceListForCopy(validacion.evidencia);
+  const hasCopyableEvidence = copyText.trim().length > 0;
+
+  const severityLevel = variant === "critical" ? "critical" : "warning";
+  const showWhat =
+    !hasComparison &&
+    issue.what &&
+    !isRedundantMeta(issue.what, title) &&
+    (issue.keyFact || issue.what.length > 0);
+
+  return (
+    <article
+      className={`rounded-md border border-slate-200 border-l-2 bg-white px-3 py-2 ${severityBorderClass(severityLevel)}`}
+    >
+      <div className="flex items-start gap-2">
+        <div className="flex shrink-0 items-center gap-1">
+          <SeverityBadge level={severityLevel} />
+          {hasCopyableEvidence && <CopyTextButton text={copyText} variant="icon" />}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <h3 className="text-sm font-semibold leading-tight text-slate-900">{title}</h3>
+            {validacion.tags?.includes("riesgo_fiscal") && (
+              <span className="inline-flex rounded bg-red-100 px-1.5 py-px text-[10px] font-semibold text-red-700">
+                Riesgo fiscal
+              </span>
+            )}
+            {apartadoRef && <ApartadoLink apartadoRef={apartadoRef} />}
+          </div>
+
+          {hasComparison && (
+            <ComparativeValues
+              excelValue={issue.excelValue}
+              memoryValue={issue.memoryValue}
+              tone={variant}
+            />
+          )}
+
+          {showWhat && (
+            <div className="mt-1.5">
+              {issue.what.length > 100 ? (
+                <ExpandableText text={issue.what} className="text-xs text-slate-600" />
+              ) : (
+                <p className="text-xs text-slate-600">
+                  {issue.keyFact ?? issue.what.split(".")[0]}
+                </p>
+              )}
+            </div>
+          )}
+
+          {showDiff && <InterannualTextDiff evidencia={validacion.evidencia} />}
+
+          <EvidenceSection evidencia={validacion.evidencia} ruleId={validacion.ruleId} />
+        </div>
+      </div>
+    </article>
+  );
+}

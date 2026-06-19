@@ -2,15 +2,18 @@
 
 import { useRef } from "react";
 import type { GlobalEstado } from "@/types/case-data";
+import type { CaseData } from "@/types/case-data";
 import type { ValidacionView } from "./types";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { DocumentsBlock } from "./DocumentsBlock";
 import { ExpedienteHeader } from "./ExpedienteHeader";
 import { InterannualBars } from "./InterannualBars";
 import { IssueCard } from "./IssueCard";
+import { MemoriaSectionsPreview } from "./MemoriaSectionsPreview";
 import {
   filterConflictingPasses,
   isCritical,
+  isInterannualStatOnly,
   isPass,
   isWarning,
 } from "./parse-issue";
@@ -34,6 +37,7 @@ interface ReviewDashboardProps {
   motivoGlobal?: string;
   errores: number;
   warnings: number;
+  caseData?: CaseData | null;
 }
 
 export function ReviewDashboard({
@@ -47,15 +51,16 @@ export function ReviewDashboard({
   motivoGlobal,
   errores,
   warnings,
+  caseData,
 }: ReviewDashboardProps) {
   const criticalRef = useRef<HTMLElement>(null);
   const warningsRef = useRef<HTMLElement>(null);
 
   const filtered = filterConflictingPasses(validaciones);
-  // Las reglas INTER_* se muestran solo en el bloque interanual
-  const criticos = filtered.filter(isCritical).filter((v) => !v.ruleId.startsWith("INTER_"));
-  const advertencias = filtered.filter(isWarning).filter((v) => !v.ruleId.startsWith("INTER_"));
-  const superadas = filtered.filter(isPass).filter((v) => !v.ruleId.startsWith("INTER_"));
+  // INTER_001..006: bloque interanual; INTER_007: tarjeta de advertencias
+  const criticos = filtered.filter(isCritical).filter((v) => !isInterannualStatOnly(v.ruleId));
+  const advertencias = filtered.filter(isWarning).filter((v) => !isInterannualStatOnly(v.ruleId));
+  const superadas = filtered.filter(isPass).filter((v) => !isInterannualStatOnly(v.ruleId));
 
   function scrollTo(section: "critical" | "warnings") {
     const ref = section === "critical" ? criticalRef : warningsRef;
@@ -83,12 +88,17 @@ export function ReviewDashboard({
 
       <DocumentsBlock archivos={archivos} ejercicio={ejercicio} />
 
+      <MemoriaSectionsPreview
+        sections={caseData?.memory?.sections ?? []}
+        ejercicio={ejercicio}
+      />
+
       {criticos.length > 0 && (
-        <section ref={criticalRef} id="errores-criticos" className="scroll-mt-6 space-y-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-red-600">
+        <section ref={criticalRef} id="errores-criticos" className="scroll-mt-6 space-y-2">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-red-600">
             Errores críticos ({criticos.length})
           </h2>
-          <div className="space-y-4">
+          <div className="space-y-2">
             {criticos.map((v) => (
               <IssueCard key={v.id} validacion={v} variant="critical" />
             ))}
@@ -97,11 +107,11 @@ export function ReviewDashboard({
       )}
 
       {advertencias.length > 0 && (
-        <section ref={warningsRef} id="advertencias" className="scroll-mt-6 space-y-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-amber-600">
+        <section ref={warningsRef} id="advertencias" className="scroll-mt-6 space-y-2">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-amber-600">
             Advertencias ({advertencias.length})
           </h2>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2">
             {advertencias.map((v) => (
               <IssueCard key={v.id} validacion={v} variant="warning" />
             ))}
@@ -113,20 +123,28 @@ export function ReviewDashboard({
 
       {superadas.length > 0 && (
         <CollapsibleSection
-          title={`✅ ${superadas.length} validaciones superadas`}
+          title={`${superadas.length} validaciones superadas`}
           count={superadas.length}
           variant="ok"
         >
-          <ul className="space-y-2">
+          <ul className="divide-y divide-emerald-100/80">
             {superadas.map((v) => (
-              <li
-                key={v.id}
-                className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50/30 px-4 py-2.5 text-sm"
-              >
-                <span className="font-medium text-emerald-900">
+              <li key={v.id} className="flex items-center gap-2 py-1">
+                <svg
+                  className="h-3.5 w-3.5 shrink-0 text-emerald-600"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <span className="truncate text-xs text-slate-700">
                   {v.title ?? v.ruleId}
                 </span>
-                <span className="text-xs text-emerald-600">Superada</span>
               </li>
             ))}
           </ul>

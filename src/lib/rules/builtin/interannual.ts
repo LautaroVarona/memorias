@@ -3,6 +3,12 @@ import { clasificarEmpresa } from "@/lib/classifier";
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
 import { withEuro, withText } from "@/lib/rules/helpers/evidence";
 import { formatEuro } from "@/lib/rules/helpers/accounts";
+import {
+  detectarApartadosOmitidos,
+  detectarVariacionesTextoApartados,
+  type ApartadoOmitido,
+  type ApartadoVariacionTexto,
+} from "@/lib/rules/helpers/text-normalize";
 import type { TipoEmpresa } from "@/types/domain";
 import type { RuleDefinition } from "../types";
 
@@ -16,6 +22,18 @@ const KEY_SECTIONS = [
 function variacionPct(actual: number, anterior: number): number {
   if (anterior === 0) return actual === 0 ? 0 : 1;
   return Math.abs((actual - anterior) / anterior);
+}
+
+function formatOmitidosLista(omitidos: ApartadoOmitido[]): string {
+  return omitidos
+    .map((o) =>
+      o.numero !== undefined ? `${String(o.numero).padStart(2, "0")} ${o.nombre}` : o.nombre
+    )
+    .join(", ");
+}
+
+function formatOmitidosImpact(omitidos: ApartadoOmitido[]): string {
+  return `Apartados afectados: ${formatOmitidosLista(omitidos)}. Estaban presentes en el ejercicio anterior y son obligatorios en la memoria.`;
 }
 
 function isOperativa(tipo: TipoEmpresa): boolean {
@@ -254,6 +272,241 @@ export const interannualRules: RuleDefinition[] = [
       return ((outcome.data.nuevas as { cuenta: string; saldo: number }[]) ?? []).map((n) =>
         withEuro("excel", `Cuenta ${n.cuenta}`, Math.abs(n.saldo), "medium")
       );
+    },
+  },
+  {
+    id: "INTER_008",
+    title: "Estructura espejo entre ejercicios",
+    type: "interannual",
+    defaultSeverity: "critical",
+    normativa: "PGC",
+    referencia: "Análisis interanual — apartados presentes en N-1",
+    execute(data) {
+      if (!data.memory || !data.priorYear?.memory) {
+        return { passed: true, data: { skip: true } };
+      }
+
+      const omitidos = detectarApartadosOmitidos(
+        data.memory.sections,
+        data.priorYear.memory.sections
+      );
+
+      const ejercicioAnterior = data.priorYear.ejercicio;
+      const ejercicio = data.metadata.ejercicio;
+      const action =
+        "Restaure los apartados omitidos en la memoria del ejercicio actual o justifique su ausencia según el tipo de memoria.";
+
+      if (omitidos.length === 0) {
+        return { passed: true, data: { ejercicioAnterior, ejercicio } };
+      }
+
+      const impact = formatOmitidosImpact(omitidos);
+
+      const diagnosis = `${omitidos.length} apartado(s) del ejercicio ${ejercicioAnterior} no aparecen en la memoria de ${ejercicio}.`;
+
+      return {
+        passed: false,
+        severity: "critical",
+        diagnosis,
+        impact,
+        action,
+        sugerencia: action,
+        data: { omitidos, ejercicioAnterior, ejercicio },
+      };
+    },
+    explanation(outcome) {
+      if (outcome.passed) {
+        if (outcome.data.skip) {
+          return seniorExplanationPass("No hay memoria del ejercicio anterior para comparar la estructura de apartados.");
+        }
+        const { ejercicioAnterior, ejercicio } = outcome.data as {
+          ejercicioAnterior: number;
+          ejercicio: number;
+        };
+        return seniorExplanationPass(
+          `Todos los apartados del ejercicio ${ejercicioAnterior} están representados en la memoria de ${ejercicio}.`
+        );
+      }
+
+      const { omitidos, ejercicioAnterior, ejercicio } = outcome.data as {
+        omitidos: ApartadoOmitido[];
+        ejercicioAnterior: number;
+        ejercicio: number;
+      };
+
+      const lista = formatOmitidosLista(omitidos);
+
+      const impact = outcome.impact ?? formatOmitidosImpact(omitidos);
+
+      return seniorExplanation(
+        outcome.diagnosis ??
+          `Apartados omitidos respecto a ${ejercicioAnterior}: ${lista}.`,
+        impact,
+        outcome.action ?? "Restaure los apartados omitidos en la memoria del ejercicio actual."
+      );
+    },
+    evidence(outcome) {
+      if (outcome.passed) return [];
+      const { omitidos, ejercicioAnterior, ejercicio } = outcome.data as {
+        omitidos: ApartadoOmitido[];
+        ejercicioAnterior: number;
+        ejercicio: number;
+      };
+
+      return omitidos.map((o) => {
+        const ref =
+          o.numero !== undefined
+            ? `Apartado ${String(o.numero).padStart(2, "0")}`
+            : `Apartado ${o.nombre}`;
+        return withText(
+          "memory",
+          ref,
+          `Presente en ${ejercicioAnterior}, ausente en ${ejercicio}`,
+          "high",
+          {
+            section: o.numero !== undefined ? String(o.numero).padStart(2, "0") : undefined,
+            sectionTitle: o.nombre,
+          }
+        );
+      });
+    },
+  },
+  {
+    id: "INTER_007",
+    title: "Integridad de texto entre apartados",
+    type: "interannual",
+    defaultSeverity: "warning",
+    normativa: "PGC",
+    referencia: "Análisis interanual — contenido narrativo de apartados",
+    execute(data) {
+      if (!data.memory || !data.priorYear?.memory) {
+        return { passed: true, data: { skip: true } };
+      }
+
+      const variados = detectarVariacionesTextoApartados(
+        data.memory.sections,
+        data.priorYear.memory.sections
+      );
+
+      const ejercicioAnterior = data.priorYear.ejercicio;
+      const ejercicio = data.metadata.ejercicio;
+      const action =
+        "Revise si el cambio es correcto o si falta información obligatoria que sí estaba en el ejercicio anterior.";
+
+      if (variados.length === 0) {
+        return {
+          passed: true,
+          data: { ejercicioAnterior, ejercicio },
+        };
+      }
+
+      const impact =
+        variados.length === 1
+          ? `La redacción del apartado ${variados[0].nombre} ha variado sustancialmente respecto al año anterior.`
+          : variados
+              .map(
+                (v) =>
+                  `La redacción del apartado ${v.nombre} ha variado sustancialmente respecto al año anterior.`
+              )
+              .join(" ");
+
+      const diagnosis = `Se detectaron cambios significativos en ${variados.length} apartado(s) al comparar la memoria de ${ejercicio} con la de ${ejercicioAnterior}.`;
+
+      return {
+        passed: false,
+        severity: "warning",
+        diagnosis,
+        impact,
+        action,
+        sugerencia: action,
+        data: {
+          variados,
+          ejercicioAnterior,
+          ejercicio,
+        },
+      };
+    },
+    explanation(outcome) {
+      if (outcome.passed) {
+        if (outcome.data.skip) {
+          return seniorExplanationPass("No hay memoria del ejercicio anterior para comparar el contenido de los apartados.");
+        }
+        const { ejercicioAnterior, ejercicio } = outcome.data as {
+          ejercicioAnterior: number;
+          ejercicio: number;
+        };
+        return seniorExplanationPass(
+          `El contenido textual de los apartados comunes entre ${ejercicio} y ${ejercicioAnterior} se mantiene dentro de los umbrales de integridad.`
+        );
+      }
+
+      const { variados, ejercicioAnterior, ejercicio } = outcome.data as {
+        variados: ApartadoVariacionTexto[];
+        ejercicioAnterior: number;
+        ejercicio: number;
+      };
+
+      const detalle = variados
+        .map((v) => {
+          const etiqueta = v.numero !== undefined ? `${String(v.numero).padStart(2, "0")} ${v.nombre}` : v.nombre;
+          const pct = (v.variacionPct * 100).toFixed(1);
+          const motivo =
+            v.motivo === "reduccion"
+              ? `reducción del ${(v.reduccionPct * 100).toFixed(1)} %`
+              : `variación del ${pct} %`;
+          return `${etiqueta} (${motivo})`;
+        })
+        .join("; ");
+
+      const impact =
+        outcome.impact ??
+        variados
+          .map(
+            (v) =>
+              `La redacción del apartado ${v.nombre} ha variado sustancialmente respecto al año anterior.`
+          )
+          .join(" ");
+
+      const action =
+        outcome.action ??
+        "Revise si el cambio es correcto o si falta información obligatoria que sí estaba en el ejercicio anterior.";
+
+      return seniorExplanation(
+        outcome.diagnosis ??
+          `${variados.length} apartado(s) con cambios significativos entre ${ejercicioAnterior} y ${ejercicio}: ${detalle}.`,
+        impact,
+        action
+      );
+    },
+    evidence(outcome) {
+      if (outcome.passed) return [];
+      const { variados, ejercicioAnterior, ejercicio } = outcome.data as {
+        variados: ApartadoVariacionTexto[];
+        ejercicioAnterior: number;
+        ejercicio: number;
+      };
+
+      return variados.map((v) => {
+        const ref =
+          v.numero !== undefined
+            ? `Apartado ${String(v.numero).padStart(2, "0")}`
+            : `Apartado ${v.nombre}`;
+        const pctLabel =
+          v.motivo === "reduccion"
+            ? `-${(v.reduccionPct * 100).toFixed(1)} %`
+            : `${v.lenActual >= v.lenAnterior ? "+" : "-"}${(v.variacionPct * 100).toFixed(1)} %`;
+        return {
+          type: "memory" as const,
+          reference: ref,
+          text: `Cambio de texto: ${pctLabel} (${v.lenAnterior} → ${v.lenActual} caracteres, ${ejercicioAnterior} → ${ejercicio})`,
+          importance: "high" as const,
+          section: v.numero !== undefined ? String(v.numero).padStart(2, "0") : undefined,
+          sectionTitle: v.nombre,
+          diffPrior: v.textoAnterior,
+          diffCurrent: v.textoActual,
+          group: v.slug,
+        };
+      });
     },
   },
 ];

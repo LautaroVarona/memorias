@@ -8,7 +8,9 @@ interface VariationBar {
 function extractVariations(validaciones: ValidacionView[]): VariationBar[] {
   const bars: VariationBar[] = [];
 
-  for (const v of validaciones.filter((x) => x.ruleId.startsWith("INTER_"))) {
+  for (const v of validaciones.filter(
+    (x) => x.ruleId.startsWith("INTER_") && x.ruleId !== "INTER_007" && x.ruleId !== "INTER_008"
+  )) {
     if (v.severidad === "pass") continue;
     const text = v.explanation ?? v.mensaje;
 

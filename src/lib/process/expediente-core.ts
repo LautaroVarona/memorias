@@ -279,8 +279,14 @@ export function finalizeExpedienteCore(input: FinalizeInput): ProcessOutput {
 
   const validaciones: ProcessValidacion[] = results.map((r) => {
     const evidenciaPayload =
-      r.diagnosis || r.tags?.length
-        ? { items: r.evidence, diagnosis: r.diagnosis, tags: r.tags }
+      r.diagnosis || r.tags?.length || r.status === "skip"
+        ? {
+            items: r.evidence,
+            diagnosis: r.diagnosis,
+            tags: r.tags,
+            status: r.status,
+            skipReason: r.skipReason,
+          }
         : r.evidence;
 
     return {

@@ -1,5 +1,5 @@
 import type { CaseData } from "@/types/case-data";
-import type { CustomRuleExpression, RuleResult } from "@/types/domain";
+import type { CustomRuleExpression, RuleCategory, RuleResult } from "@/types/domain";
 import { caseDataToEvalContext } from "@/lib/case/build-case-data";
 import { anomalyRules } from "./builtin/anomaly";
 import { balanceRules } from "./builtin/balance";
@@ -8,8 +8,11 @@ import { closureRules } from "./builtin/closure";
 import { companyTypeRules } from "./builtin/company-type";
 import { consistencyGlobalRules } from "./builtin/consistency-global";
 import { crossRules } from "./builtin/cross";
+import { cuadreValoresMemoriaRules } from "./builtin/cuadre_valores_memoria";
+import { distribucionRules } from "./builtin/distribucion_resultados";
 import { fiscalRules } from "./builtin/fiscal";
 import { fiscalAdvancedRules } from "./builtin/fiscal-advanced";
+import { calidadNarrativaRules } from "./builtin/calidad_narrativa";
 import { formalRules } from "./builtin/formal";
 import { interannualRules } from "./builtin/interannual";
 import { narrativeAdvancedRules } from "./builtin/narrative-advanced";
@@ -40,12 +43,28 @@ const SEVERITY_PRIORITY: Record<string, number> = {
   ok: 3,
 };
 
+const CIERRE_001_ID = "CIERRE_001";
+
+/** Reglas cruzadas numéricas que dependen de la fiabilidad del balance (partida doble). */
+const BALANCE_DEPENDENT_RULE_IDS = new Set([
+  "FIN_002",
+  "DIST_001",
+  "CROSS_001",
+  "CIERRE_004",
+  "CIERRE_005",
+]);
+
+const CASCADE_SKIP_MESSAGE =
+  "Regla omitida automáticamente: El descuadre crítico en la partida doble (CIERRE_001) hace que los saldos de las cuentas subyacentes no sean fiables para validación cruzada.";
+
 export const canonicalRules: RuleDefinition[] = [
   ...temporalRules,
   ...cierreRules,
   ...closureRules,
   ...consistencyGlobalRules,
   ...crossRules,
+  ...distribucionRules,
+  ...cuadreValoresMemoriaRules,
   ...fiscalRules,
   ...fiscalAdvancedRules,
   ...balanceRules,
@@ -55,7 +74,55 @@ export const canonicalRules: RuleDefinition[] = [
   ...anomalyRules,
   ...narrativeAdvancedRules,
   ...formalRules,
+  ...calidadNarrativaRules,
 ];
+
+export const ALL_CANONICAL_RULE_IDS = canonicalRules.map((rule) => rule.id);
+
+function isPartidaDobleRota(result: RuleResult): boolean {
+  return result.severity === "critical" || result.severity === "error";
+}
+
+function buildCascadeSkipResult(rule: RuleDefinition): RuleResult {
+  return {
+    ruleId: rule.id,
+    title: rule.title,
+    categoria: rule.type as RuleCategory,
+    type: rule.type,
+    severidad: "pass",
+    severity: "ok",
+    status: "skip",
+    skipReason: "balance_descuadrado_fiabilidad_nula",
+    mensaje: CASCADE_SKIP_MESSAGE,
+    explanation: CASCADE_SKIP_MESSAGE,
+    evidencia: [],
+    evidence: [],
+    normativa: rule.normativa,
+    referencia: rule.referencia,
+    tags: ["guardrail_skip"],
+  };
+}
+
+function executeRuleSafely(rule: RuleDefinition, data: CaseData): RuleResult {
+  try {
+    return runRuleDefinition(rule, data);
+  } catch (err) {
+    return {
+      ruleId: rule.id,
+      title: rule.title,
+      categoria: rule.type as RuleCategory,
+      type: rule.type,
+      severidad: "warning",
+      severity: "warning",
+      mensaje: `Error ejecutando regla ${rule.title}: ${err instanceof Error ? err.message : "desconocido"}`,
+      explanation: `Error ejecutando regla ${rule.title}: ${err instanceof Error ? err.message : "desconocido"}`,
+      evidencia: [],
+      evidence: [],
+      normativa: rule.normativa,
+      referencia: rule.referencia,
+    };
+  }
+}
 
 export interface CustomRuleInput {
   id: string;
@@ -76,26 +143,29 @@ export function runValidationEngine(
   customRules: CustomRuleInput[] = []
 ): RuleResult[] {
   const results: RuleResult[] = [];
+  const rulesById = new Map(canonicalRules.map((rule) => [rule.id, rule]));
 
-  for (const rule of canonicalRules) {
-    try {
-      results.push(runRuleDefinition(rule, data));
-    } catch (err) {
-      results.push({
-        ruleId: rule.id,
-        title: rule.title,
-        categoria: rule.type,
-        type: rule.type,
-        severidad: "warning",
-        severity: "warning",
-        mensaje: `Error ejecutando regla ${rule.title}: ${err instanceof Error ? err.message : "desconocido"}`,
-        explanation: `Error ejecutando regla ${rule.title}: ${err instanceof Error ? err.message : "desconocido"}`,
-        evidencia: [],
-        evidence: [],
-        normativa: rule.normativa,
-        referencia: rule.referencia,
-      });
+  const cierre001 = rulesById.get(CIERRE_001_ID);
+  let isBalanceUnreliable = false;
+
+  if (cierre001) {
+    const cierre001Result = executeRuleSafely(cierre001, data);
+    results.push(cierre001Result);
+    isBalanceUnreliable = isPartidaDobleRota(cierre001Result);
+  }
+
+  for (const ruleId of ALL_CANONICAL_RULE_IDS) {
+    if (ruleId === CIERRE_001_ID) continue;
+
+    const rule = rulesById.get(ruleId);
+    if (!rule) continue;
+
+    if (isBalanceUnreliable && BALANCE_DEPENDENT_RULE_IDS.has(ruleId)) {
+      results.push(buildCascadeSkipResult(rule));
+      continue;
     }
+
+    results.push(executeRuleSafely(rule, data));
   }
 
   const evalCtx = caseDataToEvalContext(data);

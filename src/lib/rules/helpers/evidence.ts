@@ -1,4 +1,6 @@
 import type { Evidence, EvidenceImportance } from "@/types/case-data";
+import type { TrackingValue } from "@/types/tracking";
+import { origenToEvidenceType } from "@/types/tracking";
 import { columnIndexToLetter } from "@/lib/utils/excel-coords";
 import { formatEuro } from "./accounts";
 
@@ -13,6 +15,29 @@ export interface MemoryLocator {
   documentName?: string;
   page?: number;
   reference?: string;
+  section?: string;
+  sectionTitle?: string;
+  rowLabel?: string;
+}
+
+export function fromTrackingValue(
+  tv: TrackingValue<number>,
+  importance: EvidenceImportance = "high",
+  text?: string,
+  reference?: string,
+  locator?: Partial<MemoryLocator & { group?: string }>
+): Evidence {
+  const type = origenToEvidenceType(tv.origen.documento);
+  return {
+    type,
+    reference: reference ?? tv.origen.ubicacion,
+    value: tv.valor,
+    formattedValue: formatEuro(tv.valor),
+    importance,
+    text,
+    origen: tv.origen,
+    ...spreadLocator(locator),
+  };
 }
 
 export function withEuro(
@@ -21,7 +46,7 @@ export function withEuro(
   value: number,
   importance: EvidenceImportance = "medium",
   text?: string,
-  locator?: Partial<ExcelLocator & MemoryLocator & { group?: string }>
+  locator?: Partial<ExcelLocator & MemoryLocator & { group?: string; summaryLabel?: string }>
 ): Evidence {
   return {
     type,
@@ -34,12 +59,26 @@ export function withEuro(
   };
 }
 
+/** Crea evidencia a partir de un TrackingValue o número plano (retrocompatible) */
+export function withTrackedValue(
+  tv: TrackingValue<number> | number | undefined,
+  fallbackType: Evidence["type"],
+  fallbackReference: string,
+  importance: EvidenceImportance = "high"
+): Evidence | undefined {
+  if (tv === undefined) return undefined;
+  if (typeof tv === "number") {
+    return withEuro(fallbackType, fallbackReference, tv, importance);
+  }
+  return fromTrackingValue(tv, importance);
+}
+
 export function withText(
   type: Evidence["type"],
   reference: string,
   text: string,
   importance: EvidenceImportance = "medium",
-  locator?: Partial<ExcelLocator & MemoryLocator & { group?: string }>
+  locator?: Partial<ExcelLocator & MemoryLocator & { group?: string; summaryLabel?: string }>
 ): Evidence {
   return { type, reference, text, importance, ...spreadLocator(locator) };
 }
@@ -85,11 +124,14 @@ export function withMemoryLocator(
     importance,
     documentName: locator.documentName,
     page: locator.page,
+    section: locator.section,
+    sectionTitle: locator.sectionTitle,
+    rowLabel: locator.rowLabel,
   };
 }
 
 function spreadLocator(
-  locator?: Partial<ExcelLocator & MemoryLocator & { group?: string }>
+  locator?: Partial<ExcelLocator & MemoryLocator & { group?: string; summaryLabel?: string }>
 ): Partial<Evidence> {
   if (!locator) return {};
   const column =
@@ -103,6 +145,10 @@ function spreadLocator(
     row: locator.row,
     column,
     group: locator.group,
+    section: locator.section,
+    sectionTitle: locator.sectionTitle,
+    rowLabel: locator.rowLabel,
+    summaryLabel: locator.summaryLabel,
   };
 }
 

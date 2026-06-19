@@ -3,6 +3,10 @@ import { summarizeResults } from "@/lib/rules/scoring";
 import type { RuleCategory, RuleResult, Severidad } from "@/types/domain";
 import type { ExpedienteDetail } from "@/lib/expediente-client";
 
+function extractTipoMemoria(detail: ExpedienteDetail): ReportData["expediente"]["tipoMemoria"] {
+  return detail.caseData?.memory?.keyData?.tipoMemoria ?? null;
+}
+
 function toReportData(detail: ExpedienteDetail): ReportData {
   const validaciones = detail.validaciones.map((v) => ({
     ruleId: v.ruleId,
@@ -39,6 +43,7 @@ function toReportData(detail: ExpedienteDetail): ReportData {
       cliente: detail.cliente,
       ejercicio: detail.ejercicio,
       tipoEmpresa: detail.tipoEmpresa,
+      tipoMemoria: extractTipoMemoria(detail),
       estado: detail.estado,
       createdAt: new Date().toISOString(),
     },

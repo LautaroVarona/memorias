@@ -34,7 +34,10 @@ export function assignMemorias(
   if (memorias.length === 1) {
     const m = memorias[0];
     const year = m.datosClave.ejercicio;
-    if (year === ejercicio - 1) return { memoriaAnterior: m };
+    // Solo como anterior si el año detectado coincide con ejercicio-1 del libro
+    if (year !== undefined && year === ejercicio - 1 && ejercicio > 0) {
+      return { memoriaAnterior: m };
+    }
     return { memoria: m };
   }
 
@@ -57,6 +60,64 @@ export function assignMemorias(
 
 export interface DocMeta {
   ejercicio?: number;
+  parseError?: string;
+}
+
+export interface ArchivoMemoriaRef {
+  id: string;
+  nombre: string;
+  meta: DocMeta;
+}
+
+/** Asigna archivos de memoria a los slots actual/anterior para la UI. */
+export function assignMemoriaArchivos(
+  memorias: ArchivoMemoriaRef[],
+  mainYear: number | undefined,
+  priorYear: number | undefined
+): { principal?: ArchivoMemoriaRef; anterior?: ArchivoMemoriaRef } {
+  if (!memorias.length) return {};
+
+  if (memorias.length === 1) {
+    const m = memorias[0];
+    if (priorYear && m.meta.ejercicio === priorYear && m.meta.ejercicio !== mainYear) {
+      return { anterior: m };
+    }
+    return { principal: m };
+  }
+
+  const byYear = (y: number) => memorias.find((m) => m.meta.ejercicio === y);
+
+  let principal = mainYear ? byYear(mainYear) : undefined;
+  let anterior = priorYear ? byYear(priorYear) : undefined;
+
+  const used = new Set([principal?.id, anterior?.id].filter(Boolean));
+  const unassigned = memorias.filter((m) => !used.has(m.id));
+
+  if (!principal && unassigned.length > 0) {
+    const candidates = unassigned.filter(
+      (m) => !(priorYear && m.meta.ejercicio === priorYear && unassigned.length > 1)
+    );
+    const pool = candidates.length > 0 ? candidates : unassigned;
+    principal = [...pool].sort((a, b) => {
+      const errA = a.meta.parseError ? 1 : 0;
+      const errB = b.meta.parseError ? 1 : 0;
+      if (errA !== errB) return errA - errB;
+      return (b.meta.ejercicio ?? 0) - (a.meta.ejercicio ?? 0);
+    })[0];
+  }
+
+  if (!anterior) {
+    anterior = memorias.find(
+      (m) =>
+        m.id !== principal?.id &&
+        (priorYear ? m.meta.ejercicio === priorYear || m.meta.ejercicio !== mainYear : true)
+    );
+    if (!anterior) {
+      anterior = memorias.find((m) => m.id !== principal?.id);
+    }
+  }
+
+  return { principal, anterior };
 }
 
 /** Resolución de documentos para la UI (DocumentsBlock). */

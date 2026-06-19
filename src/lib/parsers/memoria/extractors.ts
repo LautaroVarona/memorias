@@ -1,6 +1,9 @@
 import apartadosPGC from "../../../../data/pgc/apartados-memoria.json";
 import reglasFiscales from "../../../../data/pgc/reglas-fiscales.json";
 import type { MemoryStatement, StatementType } from "@/types/case-data";
+import type { DocumentoOrigen, TrackingValue } from "@/types/tracking";
+import { trackingValue } from "@/types/tracking";
+import { celdaMemoriaATracking } from "@/lib/tracking/memory";
 import type {
   AnioMencionado,
   ApartadoMemoria,
@@ -9,6 +12,11 @@ import type {
   FormalMemoria,
   TablaMemoria,
 } from "@/types/domain";
+import type {
+  ImporteVinculadasFila,
+  VinculadasCategoria,
+  VinculadasMemoria,
+} from "@/types/case-data";
 
 export function parseImporte(str: string): number | null {
   const match = str.match(/(-?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|-?\d+(?:,\d{1,2})?)/);
@@ -222,6 +230,39 @@ function celdaTieneContenido(celda: string): boolean {
   return /\d/.test(t);
 }
 
+function celdaTieneTextoSignificativo(celda: string): boolean {
+  const t = celda.trim();
+  if (!t) return false;
+  if (/^[-—–]$/.test(t)) return false;
+  if (/^(n\/?a|no aplica|s\.?d\.?|sin datos)$/i.test(t)) return true;
+  return t.length >= 2;
+}
+
+/** Cabeceras de tablas puramente descriptivas (sin importes). */
+const PATRON_TABLA_CUALITATIVA =
+  /\b(identificaci[oó]n|naturaleza(?:\s+de\s+la\s+relaci[oó]n)?|sociedad|domicilio|denominaci[oó]n|raz[oó]n\s+social|relaci[oó]n)\b/i;
+
+const PATRON_CABECERA_NUMERICA_TABLA =
+  /\b(importe|saldo|euros?|cantidad|valor|20\d{2})\b/i;
+
+/**
+ * Tablas cualitativas (p. ej. identificación de partes vinculadas) no requieren
+ * cifras para considerarse con contenido válido.
+ */
+export function tablaEsCualitativa(cabecera: string[], datos: string[][] = []): boolean {
+  const textoCabecera = cabecera.join(" ");
+  if (PATRON_CABECERA_NUMERICA_TABLA.test(textoCabecera)) return false;
+  if (PATRON_TABLA_CUALITATIVA.test(textoCabecera)) return true;
+
+  if (datos.length > 0) {
+    const primeraFila = datos[0].join(" ");
+    if (PATRON_CABECERA_NUMERICA_TABLA.test(primeraFila)) return false;
+    if (PATRON_TABLA_CUALITATIVA.test(primeraFila)) return true;
+  }
+
+  return false;
+}
+
 function columnasDatosRelevantes(cabecera: string[]): number[] {
   const importeCols: number[] = [];
   for (let i = 1; i < cabecera.length; i++) {
@@ -233,6 +274,11 @@ function columnasDatosRelevantes(cabecera: string[]): number[] {
 
 function tablaEstaVacia(cabecera: string[], datos: string[][]): boolean {
   if (datos.length === 0) return false;
+
+  if (tablaEsCualitativa(cabecera, datos)) {
+    return !datos.some((fila) => fila.some((celda) => celdaTieneTextoSignificativo(celda)));
+  }
+
   const cols = columnasDatosRelevantes(cabecera);
   const dataCells = datos.flatMap((f) => cols.map((c) => f[c] ?? ""));
   if (dataCells.length === 0) return false;
@@ -313,24 +359,29 @@ const MESES: Record<string, number> = {
 };
 
 function detectarEjercicio(texto: string): number | undefined {
-  // 1) Título explícito "MEMORIA ABREVIADA 2025"
-  const titulo = texto.match(/MEMORIA\s+(?:ABREVIADA|PYMES?|NORMAL)?\s*(\d{4})/i);
-  if (titulo) return parseInt(titulo[1], 10);
+  const signals: number[] = [];
 
-  // 2) Fecha de cierre "a 31/12/2025" (más fiable que columnas comparativas)
+  // Portada / cabecera (título con año)
+  const portada = texto.slice(0, 4000);
+  const titulo = portada.match(/MEMORIA\s+(?:ABREVIADA|PYMES?|NORMAL)?\s*(\d{4})/i);
+  if (titulo) signals.push(parseInt(titulo[1], 10));
+
+  // Fechas de cierre 31/12/YYYY (la del ejercicio suele ser la más reciente)
   const cierres = [...texto.matchAll(/\b31\/12\/(20\d{2})\b/g)].map((m) => parseInt(m[1], 10));
-  if (cierres.length > 0) return Math.max(...cierres);
+  if (cierres.length > 0) signals.push(Math.max(...cierres));
 
-  // 3) Pares comparativos "IMPORTE 2025 ... IMPORTE 2024": el mayor consecutivo
+  // Columnas comparativas IMPORTE 20xx
   const importes = [...texto.matchAll(/IMPORTE\s+(20\d{2})/gi)].map((m) => parseInt(m[1], 10));
   if (importes.length >= 2) {
     const counts = new Map<number, number>();
     for (const y of importes) counts.set(y, (counts.get(y) ?? 0) + 1);
     const candidatos = [...counts.keys()].filter((y) => counts.has(y - 1));
-    if (candidatos.length > 0) return Math.max(...candidatos);
+    if (candidatos.length > 0) signals.push(Math.max(...candidatos));
   }
 
-  return undefined;
+  if (signals.length === 0) return undefined;
+  // El ejercicio de la memoria es el año más reciente respaldado por las señales
+  return Math.max(...signals);
 }
 
 function detectarTipoMemoria(texto: string, numApartados: number): DatosClaveMemoria["tipoMemoria"] {
@@ -536,4 +587,391 @@ export function analizarFormal(texto: string): FormalMemoria {
 export function contarPaginasPdf(text: string): number {
   const pageBreaks = (text.match(/\f/g) || []).length;
   return Math.max(1, pageBreaks + 1);
+}
+
+const PATRON_TITULO_SECCION_PROPUESTA = /0?3\s+Aplicaci[oó]n\s+de\s+resultados/i;
+const PATRON_PROPUESTA_DISTRIBUCION = /propuesta\s+de\s+distribuci[oó]n/i;
+const PATRON_MARCADOR_TABLA_PROPUESTA = /BASE\s+DE\s+REPARTO|DISTRIBUCI[OÓ]N/i;
+const PATRON_FILA_PERDIDAS_GANANCIAS = /P[eé]rdidas\s+y\s+ganancias/i;
+const PATRON_FILA_RESERVA_CAPITALIZACION = /A\s+reserva\s+de\s+capitalizaci[oó]n/i;
+const PATRON_FILA_RESERVAS_VOLUNTARIAS = /A\s+reservas\s+voluntarias/i;
+
+/** Limpia importes de celdas Word/A3SOC (control chars, miles europeos). */
+function limpiarImporteCelda(celda: string): number | null {
+  const sinControl = celda.replace(/[\u0000-\u001F\u007F]/g, "").trim();
+  const limpio = sinControl.replace(/[^\d.,\-]/g, "");
+  if (!limpio || limpio === "-" || limpio === "," || limpio === ".") return null;
+  const estandar = limpio.replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(estandar);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizarEtiquetaFila(celda: string): string {
+  return celda.replace(/[\u0000-\u001F\u007F]/g, "").trim();
+}
+
+function detectarApartadoPropuesta(texto: string): boolean {
+  if (PATRON_TITULO_SECCION_PROPUESTA.test(texto)) return true;
+  if (PATRON_PROPUESTA_DISTRIBUCION.test(texto)) return true;
+
+  const catalogo = apartadosPGC.normal.find((a) => a.id === "propuesta_aplicacion");
+  const variantes = catalogo?.variantes ?? ["propuesta de aplicación", "aplicación del resultado"];
+  const textoLower = texto.toLowerCase();
+  return variantes.some((v) => textoLower.includes(v.toLowerCase()));
+}
+
+function tablaTieneMarcadorReparto(tabla: TablaMemoria): boolean {
+  const celdas = [tabla.cabecera[0] ?? "", ...tabla.cabecera.slice(1), ...tabla.filas.flat()];
+  return celdas.some((c) => PATRON_MARCADOR_TABLA_PROPUESTA.test(normalizarEtiquetaFila(c)));
+}
+
+function perteneceApartadoPropuesta(tabla: TablaMemoria): boolean {
+  if (tabla.apartado === "03") return true;
+  const titulo = tabla.titulo ?? "";
+  if (PATRON_TITULO_SECCION_PROPUESTA.test(titulo)) return true;
+  if (PATRON_PROPUESTA_DISTRIBUCION.test(titulo)) return true;
+  return false;
+}
+
+/**
+ * Localización híbrida: prioriza tablas del apartado 03 / propuesta de distribución;
+ * si no hay tablas ahí, recorre todo el documento buscando BASE DE REPARTO o DISTRIBUCIÓN.
+ */
+function localizarTablasPropuesta(texto: string, tablas: TablaMemoria[]): TablaMemoria[] {
+  const tieneSeccionPrioritaria =
+    PATRON_TITULO_SECCION_PROPUESTA.test(texto) || PATRON_PROPUESTA_DISTRIBUCION.test(texto);
+
+  if (tieneSeccionPrioritaria) {
+    const enApartado = tablas.filter((t) => perteneceApartadoPropuesta(t) && !t.vacia);
+    if (enApartado.length > 0) return enApartado;
+  }
+
+  return tablas.filter((t) => !t.vacia && tablaTieneMarcadorReparto(t));
+}
+
+interface CifrasPropuestaTabla {
+  resultadoEjercicio?: TrackingValue<number>;
+  resultadoEjercicioAnterior?: TrackingValue<number>;
+  reservaIndisponible?: TrackingValue<number>;
+  reservaIndisponibleAnterior?: TrackingValue<number>;
+  reservasVoluntarias?: TrackingValue<number>;
+  reservasVoluntariasAnterior?: TrackingValue<number>;
+}
+
+function extraerCeldaPropuesta(
+  tabla: TablaMemoria,
+  fila: string[],
+  filaEtiqueta: string,
+  columnaIdx: 1 | 2,
+  documento: DocumentoOrigen,
+  ejercicio?: number
+): TrackingValue<number> | undefined {
+  const celdaRaw = fila[columnaIdx] ?? "";
+  const valor = limpiarImporteCelda(celdaRaw);
+  if (valor === null) return undefined;
+  return celdaMemoriaATracking(valor, {
+    tabla,
+    filaEtiqueta,
+    columnaIdx,
+    celdaRaw,
+    documento,
+    ejercicio,
+  });
+}
+
+function extraerCifrasPropuestaDeTablas(
+  tablas: TablaMemoria[],
+  documento: DocumentoOrigen,
+  ejercicio?: number
+): CifrasPropuestaTabla {
+  const cifras: CifrasPropuestaTabla = {};
+
+  for (const tabla of tablas) {
+    for (const fila of tabla.filas) {
+      const etiqueta = normalizarEtiquetaFila(fila[0] ?? "");
+      if (!etiqueta) continue;
+
+      if (PATRON_FILA_PERDIDAS_GANANCIAS.test(etiqueta)) {
+        const actual = extraerCeldaPropuesta(tabla, fila, etiqueta, 1, documento, ejercicio);
+        const anterior = extraerCeldaPropuesta(tabla, fila, etiqueta, 2, documento, ejercicio);
+        if (actual) cifras.resultadoEjercicio = actual;
+        if (anterior) cifras.resultadoEjercicioAnterior = anterior;
+        continue;
+      }
+
+      if (PATRON_FILA_RESERVA_CAPITALIZACION.test(etiqueta)) {
+        const actual = extraerCeldaPropuesta(tabla, fila, etiqueta, 1, documento, ejercicio);
+        const anterior = extraerCeldaPropuesta(tabla, fila, etiqueta, 2, documento, ejercicio);
+        if (actual) cifras.reservaIndisponible = actual;
+        if (anterior) cifras.reservaIndisponibleAnterior = anterior;
+        continue;
+      }
+
+      if (PATRON_FILA_RESERVAS_VOLUNTARIAS.test(etiqueta)) {
+        const actual = extraerCeldaPropuesta(tabla, fila, etiqueta, 1, documento, ejercicio);
+        const anterior = extraerCeldaPropuesta(tabla, fila, etiqueta, 2, documento, ejercicio);
+        if (actual) cifras.reservasVoluntarias = actual;
+        if (anterior) cifras.reservasVoluntariasAnterior = anterior;
+      }
+    }
+  }
+
+  return cifras;
+}
+
+export interface ExtraerPropuestaOpciones {
+  documento?: DocumentoOrigen;
+  ejercicio?: number;
+}
+
+/** Extrae cifras del apartado de propuesta de aplicación (memoria Normal). */
+export function extraerPropuestaAplicacion(
+  texto: string,
+  tablas: TablaMemoria[],
+  opts: ExtraerPropuestaOpciones = {}
+): import("@/types/case-data").PropuestaAplicacion {
+  const documento = opts.documento ?? "memoria_actual";
+  const tieneApartado = detectarApartadoPropuesta(texto);
+  if (!tieneApartado) {
+    return { tieneApartado: false };
+  }
+
+  const tablasPropuesta = localizarTablasPropuesta(texto, tablas);
+  const cifras = extraerCifrasPropuestaDeTablas(tablasPropuesta, documento, opts.ejercicio);
+
+  return {
+    tieneApartado: true,
+    ...cifras,
+  };
+}
+
+// ─── Apartado 09 / Saldos con partes vinculadas ─────────────────────────────
+
+const PATRON_TITULO_SECCION_VINCULADAS =
+  /0?9\s+Operaciones\s+con\s+partes\s+vinculadas|operaciones\s+con\s+partes\s+vinculadas|partes\s+vinculadas/i;
+const PATRON_SALDOS_PENDIENTES = /saldos?\s+pendientes?\s+(de\s+)?activos/i;
+const PATRON_CABECERA_DESCRIPCION = /^DESCRIPCI[ÓO]N$/i;
+const PATRON_COL_VINCULADAS = /(?:DOMINANTE|DEPENDIENTE|VINCULAD)/i;
+
+const PATRON_FILA_CLIENTES_VINCULADAS =
+  /clientes?\s+por\s+ventas\s+y\s+prestaci[óo]n\s+de\s+servicios/i;
+const PATRON_FILA_PROVEEDORES_VINCULADAS =
+  /proveedores?\s+(a\s+)?(corto|largo)|^a\)\s*proveedores|^proveedores?$/i;
+const PATRON_FILA_PRESTAMOS_VINCULADAS =
+  /cr[eé]ditos?|pr[eé]stamo|inversiones?\s+financieras/i;
+
+/** Limpia la columna DESCRIPCIÓN de una fila de tabla vinculadas (sin arrastrar prefijos RTF). */
+export function normalizarDescripcionVinculadas(celda: string): string {
+  return normalizarEtiquetaFila(celda)
+    .replace(/^\d+\.\s*/, "")
+    .replace(/^[a-zA-Z]\)\s*/, "")
+    .replace(/^\-\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function clasificarFilaVinculadas(descripcion: string): VinculadasCategoria {
+  if (PATRON_FILA_CLIENTES_VINCULADAS.test(descripcion)) return "clientes";
+  if (PATRON_FILA_PROVEEDORES_VINCULADAS.test(descripcion)) return "proveedores";
+  if (PATRON_FILA_PRESTAMOS_VINCULADAS.test(descripcion)) return "prestamos";
+  return "otro";
+}
+
+function claveImporteVinculadas(tabla: string, descripcion: string): string {
+  return `${tabla}::${descripcion}`;
+}
+
+function nombreTablaVinculadas(tabla: TablaMemoria): string {
+  if (PATRON_SALDOS_PENDIENTES.test(tabla.titulo ?? "")) return "Saldos Pendientes";
+
+  const titulo = (tabla.titulo ?? "").trim();
+  if (/^(ENTIDAD DOMINANTE|EMPRESAS DEPENDIENTES|OTRAS PARTES VINCULADAS)/i.test(titulo)) {
+    return titulo;
+  }
+
+  const colVinc = tabla.cabecera.find((c, i) => i > 0 && PATRON_COL_VINCULADAS.test(c));
+  if (colVinc) {
+    const base = colVinc.replace(/\s+20\d{2}$/i, "").trim();
+    if (PATRON_SALDOS_PENDIENTES.test(tabla.titulo ?? "")) return `Saldos Pendientes — ${base}`;
+    return base;
+  }
+
+  return titulo || "Operaciones vinculadas";
+}
+
+function tablaEsVinculadas(tabla: TablaMemoria): boolean {
+  if (tabla.vacia) return false;
+  const cab0 = normalizarEtiquetaFila(tabla.cabecera[0] ?? "");
+  if (!PATRON_CABECERA_DESCRIPCION.test(cab0)) return false;
+  return tabla.cabecera.slice(1).some((c) => PATRON_COL_VINCULADAS.test(c));
+}
+
+function perteneceApartadoVinculadas(tabla: TablaMemoria): boolean {
+  if (tabla.apartado === "09") return true;
+  const titulo = tabla.titulo ?? "";
+  if (/vinculad|dependiente|dominante|saldos?\s+pendientes/i.test(titulo)) return true;
+  return tablaEsVinculadas(tabla);
+}
+
+function detectarApartadoVinculadas(texto: string): boolean {
+  if (PATRON_TITULO_SECCION_VINCULADAS.test(texto)) return true;
+  if (PATRON_SALDOS_PENDIENTES.test(texto)) return true;
+
+  const catalogo = [
+    ...(apartadosPGC.abreviada as CatalogoApartado[]),
+    ...(apartadosPGC.normal as CatalogoApartado[]),
+  ];
+  const vinculadas = catalogo.find((a) => a.id === "vinculadas" || a.id === "partes_vinculadas");
+  const variantes = vinculadas?.variantes ?? ["operaciones con partes vinculadas", "partes vinculadas"];
+  const textoLower = texto.toLowerCase();
+  return variantes.some((v) => textoLower.includes(v.toLowerCase()));
+}
+
+/**
+ * Localización híbrida: prioriza tablas del apartado 09 / saldos pendientes;
+ * si no hay coincidencias, recorre todo el documento buscando cabeceras DESCRIPCIÓN
+ * con columnas DOMINANTE / DEPENDIENTE / VINCULADAS.
+ */
+function localizarTablasVinculadas(texto: string, tablas: TablaMemoria[]): TablaMemoria[] {
+  const tieneSeccionPrioritaria =
+    PATRON_TITULO_SECCION_VINCULADAS.test(texto) || PATRON_SALDOS_PENDIENTES.test(texto);
+
+  if (tieneSeccionPrioritaria) {
+    const enApartado = tablas.filter((t) => perteneceApartadoVinculadas(t) && tablaEsVinculadas(t));
+    if (enApartado.length > 0) return enApartado;
+  }
+
+  return tablas.filter((t) => !t.vacia && tablaEsVinculadas(t));
+}
+
+function columnasEjercicioVinculadas(cabecera: string[]): { actual: number; anterior?: number } {
+  const anioCols: number[] = [];
+  for (let i = 1; i < cabecera.length; i++) {
+    if (/IMPORTE\s+20\d{2}|20\d{2}/i.test(cabecera[i])) anioCols.push(i);
+  }
+  if (anioCols.length > 0) {
+    return { actual: anioCols[0], anterior: anioCols[1] };
+  }
+  return { actual: 1, anterior: cabecera.length > 2 ? 2 : undefined };
+}
+
+function ubicacionVinculadasFila(
+  apartado: string,
+  nombreTabla: string,
+  nombreFila: string
+): string {
+  return `Apartado ${apartado.padStart(2, "0")} / Tabla: ${nombreTabla} / Fila: ${nombreFila}`;
+}
+
+function extraerCeldaVinculadas(
+  apartado: string,
+  nombreTabla: string,
+  nombreFila: string,
+  celdaRaw: string,
+  documento: DocumentoOrigen
+): TrackingValue<number> | undefined {
+  const valor = limpiarImporteCelda(celdaRaw);
+  if (valor === null || Math.abs(valor) === 0) return undefined;
+  return trackingValue(
+    valor,
+    documento,
+    ubicacionVinculadasFila(apartado, nombreTabla, nombreFila),
+    celdaRaw.trim() || undefined
+  );
+}
+
+function sumarPorCategoria(filas: ImporteVinculadasFila[], categoria: VinculadasCategoria): number {
+  return filas
+    .filter((f) => f.categoria === categoria)
+    .reduce((s, f) => s + Math.abs(f.ejercicioActual?.valor ?? 0), 0);
+}
+
+function extraerCifrasVinculadasDeTablas(
+  tablas: TablaMemoria[],
+  documento: DocumentoOrigen
+): Pick<VinculadasMemoria, "filas" | "totalActual" | "clientesGrupo" | "proveedoresGrupo" | "prestamos"> {
+  const filas: ImporteVinculadasFila[] = [];
+  const indice = new Map<string, ImporteVinculadasFila>();
+
+  for (const tabla of tablas) {
+    const nombreTabla = nombreTablaVinculadas(tabla);
+    const apartadoRef = tabla.apartado ?? "09";
+    const { actual: colActual, anterior: colAnterior } = columnasEjercicioVinculadas(tabla.cabecera);
+
+    for (const fila of tabla.filas) {
+      const nombreFilaLimpio = normalizarDescripcionVinculadas(fila[0] ?? "");
+      if (!nombreFilaLimpio) continue;
+
+      const clave = claveImporteVinculadas(nombreTabla, nombreFilaLimpio);
+      let registro = indice.get(clave);
+      if (!registro) {
+        registro = {
+          clave,
+          descripcion: nombreFilaLimpio,
+          tabla: nombreTabla,
+          categoria: clasificarFilaVinculadas(nombreFilaLimpio),
+        };
+        indice.set(clave, registro);
+        filas.push(registro);
+      }
+
+      const celdaActualRaw = fila[colActual] ?? "";
+      const trackedActual = extraerCeldaVinculadas(
+        apartadoRef,
+        nombreTabla,
+        nombreFilaLimpio,
+        celdaActualRaw,
+        documento
+      );
+      if (trackedActual) registro.ejercicioActual = trackedActual;
+
+      if (colAnterior !== undefined) {
+        const celdaAnteriorRaw = fila[colAnterior] ?? "";
+        const trackedAnterior = extraerCeldaVinculadas(
+          apartadoRef,
+          nombreTabla,
+          nombreFilaLimpio,
+          celdaAnteriorRaw,
+          documento
+        );
+        if (trackedAnterior) registro.ejercicioAnterior = trackedAnterior;
+      }
+    }
+  }
+
+  const clientesGrupo = sumarPorCategoria(filas, "clientes");
+  const proveedoresGrupo = sumarPorCategoria(filas, "proveedores");
+  const prestamos = sumarPorCategoria(filas, "prestamos");
+  const totalActual = clientesGrupo + proveedoresGrupo + prestamos;
+
+  return { filas, totalActual, clientesGrupo, proveedoresGrupo, prestamos };
+}
+
+export interface ExtraerVinculadasOpciones {
+  documento?: DocumentoOrigen;
+}
+
+/** Extrae saldos trazados del apartado de operaciones con partes vinculadas. */
+export function extraerVinculadas(
+  texto: string,
+  tablas: TablaMemoria[],
+  opts: ExtraerVinculadasOpciones = {}
+): VinculadasMemoria {
+  const documento = opts.documento ?? "memoria_actual";
+  const tieneApartado = detectarApartadoVinculadas(texto);
+  const tablasVinculadas = localizarTablasVinculadas(texto, tablas);
+
+  if (tablasVinculadas.length === 0) {
+    return {
+      tieneApartado,
+      filas: [],
+      totalActual: 0,
+      clientesGrupo: 0,
+      proveedoresGrupo: 0,
+      prestamos: 0,
+    };
+  }
+
+  const cifras = extraerCifrasVinculadasDeTablas(tablasVinculadas, documento);
+  return { tieneApartado: true, ...cifras };
 }

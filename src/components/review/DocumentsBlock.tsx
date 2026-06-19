@@ -1,4 +1,5 @@
 import {
+  assignMemoriaArchivos,
   resolveDocumentYears,
 } from "@/lib/process/resolve-ejercicio";
 
@@ -18,11 +19,16 @@ interface DocumentsBlockProps {
 interface DocStatus {
   label: string;
   loaded: boolean;
+  warning?: boolean;
   detail?: string;
   fileName?: string;
 }
 
-function parseMeta(metadata?: string): { ejercicio?: number; cliente?: string } {
+function parseMeta(metadata?: string): {
+  ejercicio?: number;
+  cliente?: string;
+  parseError?: string;
+} {
   if (!metadata) return {};
   try {
     return JSON.parse(metadata);
@@ -44,19 +50,13 @@ function buildStatuses(archivos: ArchivoDoc[], expedienteEjercicio?: number): Do
     expedienteEjercicio
   );
 
-  const memoriaPrincipal =
-    mainYear !== undefined
-      ? memoriasConMeta.find((m) => m.meta.ejercicio === mainYear)
-      : memoriasConMeta.sort(
-          (a, b) => (b.meta.ejercicio ?? 0) - (a.meta.ejercicio ?? 0)
-        )[0];
+  const { principal: memoriaPrincipal, anterior: memoriaAnterior } = assignMemoriaArchivos(
+    memoriasConMeta,
+    mainYear,
+    priorYear
+  );
 
-  const memoriaAnterior =
-    priorYear !== undefined
-      ? memoriasConMeta.find(
-          (m) => m.meta.ejercicio === priorYear && m.id !== memoriaPrincipal?.id
-        )
-      : memoriasConMeta.find((m) => m.id !== memoriaPrincipal?.id);
+  const principalHasError = !!memoriaPrincipal?.meta.parseError;
 
   return [
     {
@@ -68,21 +68,27 @@ function buildStatuses(archivos: ArchivoDoc[], expedienteEjercicio?: number): Do
     {
       label: "Memoria (ejercicio actual)",
       loaded: !!memoriaPrincipal,
-      detail: memoriaPrincipal?.meta.ejercicio
-        ? `Ejercicio ${memoriaPrincipal.meta.ejercicio}`
-        : mainYear !== undefined
-          ? `Ejercicio ${mainYear}`
-          : undefined,
+      warning: principalHasError,
+      detail: principalHasError
+        ? "No se pudo leer el documento"
+        : memoriaPrincipal?.meta.ejercicio
+          ? `Ejercicio ${memoriaPrincipal.meta.ejercicio}`
+          : mainYear !== undefined
+            ? `Ejercicio ${mainYear}`
+            : undefined,
       fileName: memoriaPrincipal?.nombre,
     },
     {
       label: "Memoria ejercicio anterior",
       loaded: !!memoriaAnterior,
-      detail: memoriaAnterior?.meta.ejercicio
-        ? `Ejercicio ${memoriaAnterior.meta.ejercicio}`
-        : priorYear !== undefined
-          ? `Ejercicio ${priorYear}`
-          : undefined,
+      warning: !!memoriaAnterior?.meta.parseError,
+      detail: memoriaAnterior?.meta.parseError
+        ? "No se pudo leer el documento"
+        : memoriaAnterior?.meta.ejercicio
+          ? `Ejercicio ${memoriaAnterior.meta.ejercicio}`
+          : priorYear !== undefined
+            ? `Ejercicio ${priorYear}`
+            : undefined,
       fileName: memoriaAnterior?.nombre,
     },
   ];
@@ -102,20 +108,28 @@ export function DocumentsBlock({ archivos, ejercicio }: DocumentsBlockProps) {
             key={s.label}
             className={`rounded-xl border p-4 ${
               s.loaded
-                ? "border-emerald-200 bg-emerald-50/40"
+                ? s.warning
+                  ? "border-amber-200 bg-amber-50/40"
+                  : "border-emerald-200 bg-emerald-50/40"
                 : "border-slate-100 bg-slate-50/50"
             }`}
           >
             <div className="flex items-center gap-2">
               <span
-                className={`text-lg ${s.loaded ? "text-emerald-600" : "text-slate-300"}`}
+                className={`text-lg ${
+                  s.loaded ? (s.warning ? "text-amber-600" : "text-emerald-600") : "text-slate-300"
+                }`}
                 aria-hidden
               >
-                {s.loaded ? "✔" : "○"}
+                {s.loaded ? (s.warning ? "!" : "✔") : "○"}
               </span>
               <span
                 className={`text-sm font-medium ${
-                  s.loaded ? "text-emerald-900" : "text-slate-400"
+                  s.loaded
+                    ? s.warning
+                      ? "text-amber-900"
+                      : "text-emerald-900"
+                    : "text-slate-400"
                 }`}
               >
                 {s.label}
@@ -124,7 +138,13 @@ export function DocumentsBlock({ archivos, ejercicio }: DocumentsBlockProps) {
             {s.loaded ? (
               <>
                 {s.detail && (
-                  <p className="mt-2 text-xs font-medium text-emerald-700">{s.detail}</p>
+                  <p
+                    className={`mt-2 text-xs font-medium ${
+                      s.warning ? "text-amber-700" : "text-emerald-700"
+                    }`}
+                  >
+                    {s.detail}
+                  </p>
                 )}
                 {s.fileName && (
                   <p className="mt-1 truncate text-xs text-slate-500" title={s.fileName}>
@@ -138,6 +158,13 @@ export function DocumentsBlock({ archivos, ejercicio }: DocumentsBlockProps) {
           </div>
         ))}
       </div>
+      {archivos.filter((a) => a.tipo === "memoria_word" || a.tipo === "memoria_pdf").length ===
+        1 && (
+        <p className="mt-3 text-xs text-slate-500">
+          Solo hay una memoria en el expediente. Para un cierre 2025 hacen falta el libro Excel,
+          la memoria del ejercicio actual y, si aplica, la del ejercicio anterior.
+        </p>
+      )}
     </section>
   );
 }

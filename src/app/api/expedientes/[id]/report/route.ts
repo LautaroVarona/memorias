@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { prisma } from "@/lib/db";
-import { buildExcelRows, buildHtmlReport } from "@/lib/reports/builder";
+import { buildExcelRows, buildHtmlReport, type ReportData } from "@/lib/reports/builder";
 import { summarizeResults } from "@/lib/rules/scoring";
+import type { CaseData } from "@/types/case-data";
 import type { RuleCategory, RuleResult, Severidad } from "@/types/domain";
 
 export async function GET(
@@ -53,12 +54,23 @@ export async function GET(
   const resumen = summarizeResults(ruleResults);
   const score = expediente.scoreSnapshot ? JSON.parse(expediente.scoreSnapshot) : null;
 
+  let tipoMemoria = null as ReportData["expediente"]["tipoMemoria"];
+  if (expediente.caseDataSnapshot) {
+    try {
+      const caseData = JSON.parse(expediente.caseDataSnapshot) as CaseData;
+      tipoMemoria = caseData.memory?.keyData?.tipoMemoria ?? null;
+    } catch {
+      tipoMemoria = null;
+    }
+  }
+
   const reportData = {
     expediente: {
       id: expediente.id,
       cliente: expediente.cliente,
       ejercicio: expediente.ejercicio,
       tipoEmpresa: expediente.tipoEmpresa,
+      tipoMemoria,
       estado: expediente.estado,
       createdAt: expediente.createdAt.toISOString(),
     },

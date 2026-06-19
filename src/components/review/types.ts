@@ -17,6 +17,17 @@ export interface EvidenceItem {
   row?: number;
   column?: string;
   group?: string;
+  section?: string;
+  sectionTitle?: string;
+  rowLabel?: string;
+  summaryLabel?: string;
+  diffPrior?: string;
+  diffCurrent?: string;
+  origen?: {
+    documento: "excel" | "memoria_actual" | "memoria_anterior";
+    ubicacion: string;
+    detalleRaw?: string;
+  };
 }
 
 export interface ValidacionView {

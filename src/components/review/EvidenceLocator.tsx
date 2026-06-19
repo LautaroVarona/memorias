@@ -1,5 +1,6 @@
 import type { EvidenceItem } from "./types";
 import { normalizeEvidenceType } from "./parse-issue";
+import { formatEvidenceLocator } from "./evidence-utils";
 
 interface EvidenceLocatorProps {
   evidence: EvidenceItem;
@@ -9,6 +10,7 @@ interface EvidenceLocatorProps {
 export function EvidenceLocator({ evidence, prominent = false }: EvidenceLocatorProps) {
   const type = normalizeEvidenceType(evidence);
   const isMemory = type === "memory";
+  const origenLabel = formatEvidenceLocator(evidence);
 
   const doc = evidence.documentName;
   const page = evidence.page;
@@ -16,7 +18,7 @@ export function EvidenceLocator({ evidence, prominent = false }: EvidenceLocator
   const row = evidence.row;
   const column = evidence.column;
 
-  const hasLocator = !!(doc || page || sheet || row || column);
+  const hasLocator = !!(origenLabel || doc || page || sheet || row || column);
   if (!hasLocator) return null;
 
   const boxClass = prominent
@@ -30,11 +32,17 @@ export function EvidenceLocator({ evidence, prominent = false }: EvidenceLocator
       >
         <span className="uppercase tracking-wide text-blue-700/80">Memoria</span>
         <div className="mt-0.5 font-mono text-sm">
-          {doc && <span className="break-all">{doc}</span>}
-          {page !== undefined && (
-            <span className={doc ? " · " : ""}>
-              pág. <strong>{page}</strong>
-            </span>
+          {origenLabel ? (
+            <span className="break-all">{origenLabel}</span>
+          ) : (
+            <>
+              {doc && <span className="break-all">{doc}</span>}
+              {page !== undefined && (
+                <span className={doc ? " · " : ""}>
+                  pág. <strong>{page}</strong>
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -47,23 +55,29 @@ export function EvidenceLocator({ evidence, prominent = false }: EvidenceLocator
     >
       <span className="uppercase tracking-wide text-emerald-700/80">Excel</span>
       <div className="mt-0.5 font-mono text-sm">
-        {sheet && <span>Hoja: <strong>{sheet}</strong></span>}
-        {row !== undefined && (
-          <span>
-            {sheet ? " · " : ""}
-            Fila: <strong>{row}</strong>
-          </span>
-        )}
-        {column && (
-          <span>
-            {(sheet || row !== undefined) ? " · " : ""}
-            Col.: <strong>{column}</strong>
-          </span>
-        )}
-        {doc && (
-          <div className="mt-0.5 truncate text-[11px] font-sans text-emerald-800/80" title={doc}>
-            {doc}
-          </div>
+        {origenLabel ? (
+          <span className="break-all">{origenLabel}</span>
+        ) : (
+          <>
+            {sheet && <span>Hoja: <strong>{sheet}</strong></span>}
+            {row !== undefined && (
+              <span>
+                {sheet ? " · " : ""}
+                Fila: <strong>{row}</strong>
+              </span>
+            )}
+            {column && (
+              <span>
+                {(sheet || row !== undefined) ? " · " : ""}
+                Col.: <strong>{column}</strong>
+              </span>
+            )}
+            {doc && (
+              <div className="mt-0.5 truncate text-[11px] font-sans text-emerald-800/80" title={doc}>
+                {doc}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

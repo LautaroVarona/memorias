@@ -53,9 +53,11 @@ export function enrichIssue(v: ValidacionView): ParsedIssue {
   const memoryItems = v.evidencia.filter((e) => normalizeEvidenceType(e) === "memory");
 
   const excelValue =
+    excelItems.find((e) => evRef(e) === "Total vinculadas Excel")?.formattedValue ??
     excelItems.find((e) => e.value !== undefined || e.formattedValue)?.formattedValue ??
     excelItems.find((e) => e.value !== undefined)?.value?.toString();
   const memoryValue =
+    memoryItems.find((e) => evRef(e).includes("Total vinculadas memoria"))?.formattedValue ??
     memoryItems.find((e) => e.value !== undefined || e.formattedValue)?.formattedValue ??
     memoryItems.find((e) => e.value !== undefined)?.value?.toString();
 
@@ -84,7 +86,7 @@ const TOPIC_GROUPS: string[][] = [
   ["CIERRE_008", "CLOSURE_001"],
   ["CROSS_001", "PGC_001"],
   ["TEMP_001", "TEMP_002", "TEMP_003", "TEMP_004"],
-  ["CIERRE_006", "CIERRE_007", "CIERRE_009", "FORMAL_"],
+  ["CIERRE_006", "CIERRE_007", "CIERRE_009", "CIERRE_010", "FORMAL_"],
   ["INTER_001", "INTER_002", "INTER_003", "INTER_004", "ANOM_"],
   ["CONSISTENCIA_GLOBAL_001", "CROSS_004", "TIPO_COM_"],
   ["NARR_ADV_001", "TEMP_002"],
@@ -107,6 +109,7 @@ export function filterConflictingPasses(validaciones: ValidacionView[]): Validac
   );
 
   return validaciones.filter((v) => {
+    if (isGuardrailSkip(v)) return false;
     if (v.severidad !== "pass") return true;
     return !failedTopics.has(topicOf(v.ruleId));
   });
@@ -120,6 +123,62 @@ export function isWarning(v: ValidacionView): boolean {
   return v.severidad === "warning";
 }
 
+export function isGuardrailSkip(v: ValidacionView): boolean {
+  return v.tags?.includes("guardrail_skip") === true;
+}
+
 export function isPass(v: ValidacionView): boolean {
-  return v.severidad === "pass";
+  return v.severidad === "pass" && !isGuardrailSkip(v);
+}
+
+/** Reglas INTER_* mostradas solo en el bloque de variación interanual (no en tarjetas de auditoría). */
+export function isInterannualStatOnly(ruleId: string): boolean {
+  return (
+    ruleId.startsWith("INTER_") && ruleId !== "INTER_007" && ruleId !== "INTER_008"
+  );
+}
+
+export function supportsInterannualDiff(ruleId: string): boolean {
+  return ruleId === "INTER_007";
+}
+
+/** Referencia de apartado (p. ej. "09") extraída de la evidencia o del mensaje. */
+function normalizeMetaText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Oculta bloques de diagnóstico/impacto que solo repiten el título o el mensaje principal. */
+export function isRedundantMeta(text: string, title: string, what?: string): boolean {
+  const normalized = normalizeMetaText(text);
+  if (!normalized || normalized.length < 12) return true;
+
+  const candidates = [title, what].filter(Boolean).map((s) => normalizeMetaText(s!));
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (normalized === candidate) return true;
+    if (candidate.includes(normalized) || normalized.includes(candidate)) return true;
+    const words = normalized.split(" ").filter((w) => w.length > 3);
+    if (words.length >= 3) {
+      const overlap = words.filter((w) => candidate.includes(w)).length / words.length;
+      if (overlap >= 0.75) return true;
+    }
+  }
+  return false;
+}
+
+export function extractApartadoRef(validacion: ValidacionView): string | undefined {
+  for (const ev of validacion.evidencia) {
+    if (ev.section) return ev.section.padStart(2, "0");
+    const m = evRef(ev).match(/apartado\s*(\d{1,2})/i);
+    if (m) return m[1].padStart(2, "0");
+  }
+  const fromMsg = (validacion.explanation ?? validacion.mensaje).match(/apartado\s*(\d{1,2})/i);
+  if (fromMsg) return fromMsg[1].padStart(2, "0");
+  return undefined;
 }

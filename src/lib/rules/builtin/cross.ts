@@ -9,12 +9,16 @@ import {
 } from "@/lib/rules/helpers/group-accounts";
 import {
   buildVinculadasExcelBreakdown,
-  categoryLabel,
+  buildVinculadasMemoriaEvidence,
   computeVinculadasTotals,
   diagnoseVinculadasMismatch,
   DIAGNOSIS_LABELS,
+  excelGroupSummaryLabel,
+  resolveVinculadasMemoryContext,
+  vinculadasEvidenceGroup,
 } from "@/lib/rules/helpers/vinculadas";
 import { compareWithTolerance, formatEuro, sumByPrefix } from "@/lib/rules/helpers/accounts";
+import type { VinculadasMemoria } from "@/types/case-data";
 import type { CuentaNormalizada } from "@/types/domain";
 import type { RuleDefinition } from "../types";
 
@@ -44,12 +48,15 @@ export const crossRules: RuleDefinition[] = [
       const breakdown = breakdownGroupAccounts(groupAccounts);
       const dominantType = dominantGroupCategory(breakdown);
       const sourceText = data.memory?.statements.find((s) => s.type === "vinculadas")?.sourceText;
-      const diagnosis = diagnoseVinculadasMismatch(totals, memorySaysNo);
+      const memoryContext = resolveVinculadasMemoryContext(data);
       const vinculadasIdx = data.memory?.fullText.toLowerCase().search(/vinculad|operaciones con partes vinculadas/i) ?? -1;
       const memoryPage =
-        vinculadasIdx >= 0
+        memoryContext.page ??
+        (vinculadasIdx >= 0
           ? Math.max(1, (data.memory!.fullText.slice(0, vinculadasIdx).match(/\f/g) || []).length + 1)
-          : undefined;
+          : undefined);
+
+      const diagnosis = diagnoseVinculadasMismatch(totals, memorySaysNo);
 
       const hasGroupBalance = totals.excel.total > 10_000;
       const descuadreTotal =
@@ -79,6 +86,8 @@ export const crossRules: RuleDefinition[] = [
           excelDoc: data.financials.libroCierre?.hojasDetectadas?.[0],
           memoryDoc: data.memory?.metadata.archivo,
           memoryPage,
+          memoryContext,
+          vinculadas: data.memory?.vinculadas,
         },
       };
     },
@@ -112,29 +121,47 @@ export const crossRules: RuleDefinition[] = [
       const totals = outcome.data.totals as ReturnType<typeof computeVinculadasTotals>;
       const sourceText = outcome.data.sourceText as string | undefined;
       const diagnosis = outcome.data.diagnosis as string;
+      const memorySaysNo = outcome.data.memorySaysNo as boolean;
       const groupAccounts = (outcome.data.groupAccounts as CuentaNormalizada[]) ?? [];
       const breakdown = buildVinculadasExcelBreakdown(groupAccounts);
       const excelDoc = outcome.data.excelDoc as string | undefined;
+      const memoryContext = outcome.data.memoryContext as ReturnType<
+        typeof resolveVinculadasMemoryContext
+      >;
+      const memoryLocator = {
+        documentName: memoryContext?.documentName ?? (outcome.data.memoryDoc as string | undefined),
+        page: memoryContext?.page ?? (outcome.data.memoryPage as number | undefined),
+        section: memoryContext?.section,
+        sectionTitle: memoryContext?.sectionTitle,
+        rowLabel: memoryContext?.rowLabel,
+      };
+      const contabilidadSheet =
+        groupAccounts.find((c) => c.hoja)?.hoja ?? excelDoc ?? "SYS_cliente";
 
       const ev = [
         withEuro("excel", "Total vinculadas Excel", totals.excel.total, "high", undefined, {
-          sheet: "SYS_cliente",
+          sheet: contabilidadSheet,
+          summaryLabel: excelGroupSummaryLabel("otro", contabilidadSheet),
         }),
         withEuro("excel", "Clientes grupo", totals.excel.clientesGrupo, "medium", undefined, {
-          sheet: "SYS_cliente",
+          sheet: contabilidadSheet,
           group: "clientes",
+          summaryLabel: excelGroupSummaryLabel("clientes", contabilidadSheet),
         }),
         withEuro("excel", "Proveedores grupo", totals.excel.proveedoresGrupo, "medium", undefined, {
-          sheet: "SYS_cliente",
+          sheet: contabilidadSheet,
           group: "proveedores",
+          summaryLabel: excelGroupSummaryLabel("proveedores", contabilidadSheet),
         }),
         withEuro("excel", "Préstamos intragrupo", totals.excel.prestamos, "high", undefined, {
-          sheet: "SYS_cliente",
+          sheet: contabilidadSheet,
           group: "prestamos",
+          summaryLabel: excelGroupSummaryLabel("prestamos", contabilidadSheet),
         }),
         withEuro("excel", "Participaciones", totals.excel.participaciones, "medium", undefined, {
-          sheet: "SYS_cliente",
+          sheet: contabilidadSheet,
           group: "participaciones",
+          summaryLabel: excelGroupSummaryLabel("participaciones", contabilidadSheet),
         }),
       ];
 
@@ -151,14 +178,31 @@ export const crossRules: RuleDefinition[] = [
             },
             "high",
             undefined,
-            categoryLabel(line.categoria)
+            vinculadasEvidenceGroup(line.cuenta, line.categoria)
           )
         );
       }
 
       if (totals.memoria.total > 0) {
-        ev.push(withEuro("memory", "Total vinculadas memoria", totals.memoria.total, "high"));
+        const vinculadas = outcome.data.vinculadas as VinculadasMemoria | undefined;
+        const section = memoryContext?.section ?? "09";
+
+        ev.push(
+          ...buildVinculadasMemoriaEvidence({
+            vinculadas,
+            totals: totals.memoria,
+            section,
+            memoryContext: memoryContext ?? { section, sectionTitle: "Operaciones con partes vinculadas" },
+          })
+        );
         ev.push(withEuro("excel", "Diferencia Excel − memoria", totals.diferencia, "high"));
+      } else if (totals.memoria.total === 0 && !memorySaysNo) {
+        ev.push(
+          withEuro("memory", "Total vinculadas memoria", 0, "high", undefined, {
+            ...memoryLocator,
+            rowLabel: memoryLocator.rowLabel ?? "Importes en tablas del apartado 09",
+          })
+        );
       }
 
       if (sourceText) {
@@ -167,8 +211,10 @@ export const crossRules: RuleDefinition[] = [
             "Afirmación en memoria (apartado 09)",
             sourceText,
             {
-              documentName: outcome.data.memoryDoc as string | undefined,
-              page: outcome.data.memoryPage as number | undefined,
+              ...memoryLocator,
+              rowLabel: memorySaysNo
+                ? "Afirmación de ausencia de operaciones vinculadas"
+                : memoryLocator.rowLabel,
             },
             "high"
           )
@@ -176,7 +222,15 @@ export const crossRules: RuleDefinition[] = [
       }
 
       if (diagnosis) {
-        ev.push(withText("memory", "Diagnóstico", DIAGNOSIS_LABELS[diagnosis as keyof typeof DIAGNOSIS_LABELS], "high"));
+        ev.push(
+          withText(
+            "memory",
+            "Diagnóstico",
+            DIAGNOSIS_LABELS[diagnosis as keyof typeof DIAGNOSIS_LABELS],
+            "high",
+            memoryLocator
+          )
+        );
       }
 
       return enrichEvidence(ev);

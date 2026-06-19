@@ -1,11 +1,15 @@
 import * as XLSX from "xlsx";
 import type {
   BalanceNormalizado,
+  CalcisData,
   CuentaNormalizada,
   EpigrafeComparativo,
   HojaMinisterio,
   LibroCierre,
 } from "@/types/domain";
+import { trackingValue } from "@/types/tracking";
+import type { TrackingValue } from "@/types/tracking";
+import { logger } from "@/lib/logger";
 import { normalizarCuenta } from "@/lib/normalizers/cuentas";
 import {
   ALIASES_BALANCE,
@@ -207,6 +211,212 @@ function parseHojaMinisterio(rows: unknown[][], nombre: string): HojaMinisterio 
   return { nombre, filas: rows.length, epigrafes };
 }
 
+// ── CALCIS (buscador semántico por etiquetas) ───────────────────────────────
+
+const logCalcis = logger.child({ module: "cierre-despacho", hoja: "CALCIS" });
+
+/** Columnas A y B: etiquetas */
+const CALCIS_COLS_ETIQUETA = [0, 1];
+/** Columnas C en adelante: importes (saltando vacíos por celdas combinadas) */
+const CALCIS_COL_IMPORTE_MIN = 2;
+const CALCIS_MAX_COLS_IMPORTE = 12;
+
+interface CalcisCampoDef {
+  campo: keyof Omit<CalcisData, "hoja" | "reservaCapitalizacion">;
+  labels: string[];
+  critico: boolean;
+  /** Filtro extra sobre texto compactado de la fila (evita falsos positivos) */
+  filtroFila?: (compacto: string) => boolean;
+}
+
+const CALCIS_CAMPOS: CalcisCampoDef[] = [
+  { campo: "resultadoContable", labels: ["RESULTADO CONTABLE"], critico: true },
+  { campo: "ajustes", labels: ["AJUSTES"], critico: true },
+  { campo: "baseImponible", labels: ["BASE IMPONIBLE"], critico: true },
+  { campo: "cuotaIntegra", labels: ["CUOTA ÍNTEGRA", "CUOTA INTEGRA"], critico: true },
+  { campo: "retenciones", labels: ["RETENCIONES"], critico: true },
+  {
+    campo: "cuotaDiferencial",
+    labels: ["CUOTA DIFERENCIAL", "A INGRESAR", "A INGRESAR O A DEVOLVER"],
+    critico: true,
+  },
+  {
+    campo: "tipoImpositivo",
+    labels: ["TIPO"],
+    critico: false,
+    filtroFila: (c) =>
+      c.includes("tipo") &&
+      !c.includes("cuota") &&
+      !c.includes("diferencial") &&
+      !c.includes("integra") &&
+      !c.includes("retencion"),
+  },
+];
+
+const CALCIS_RESERVA_LABELS = ["RESERVA CAPITALIZACION", "CAPITALIZACION INDISPONIBLE", "1146"];
+
+/** Compacta texto: minúsculas, sin acentos, sin espacios/tabs/saltos de línea */
+function compactarTextoCalcis(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/\s/g, "");
+}
+
+function etiquetaLegibleCalcis(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function celdaVaciaCalcis(val: unknown): boolean {
+  if (val === null || val === undefined) return true;
+  if (typeof val === "string" && val.trim() === "") return true;
+  return false;
+}
+
+function etiquetaContieneLabel(textoCelda: string, label: string): boolean {
+  const celda = compactarTextoCalcis(textoCelda);
+  const busqueda = compactarTextoCalcis(label);
+  if (!celda || !busqueda) return false;
+  return celda.includes(busqueda);
+}
+
+function textoEtiquetaFila(row: unknown[], colEtiqueta: number): string {
+  return etiquetaLegibleCalcis(asText(row[colEtiqueta]));
+}
+
+function textoEtiquetaConcatenadaAB(row: unknown[]): string {
+  const partes = [asText(row[0]), asText(row[1])].filter((t) => t.trim() !== "");
+  return etiquetaLegibleCalcis(partes.join(" "));
+}
+
+function importeAdyacenteCalcis(
+  row: unknown[],
+  colEtiqueta: number
+): { valor: number; raw?: string } {
+  const inicio = Math.max(colEtiqueta + 1, CALCIS_COL_IMPORTE_MIN);
+  const limite = Math.min(row.length, inicio + CALCIS_MAX_COLS_IMPORTE);
+  for (let c = inicio; c < limite; c++) {
+    const celda = row[c];
+    if (celdaVaciaCalcis(celda)) continue;
+    const n = asNumber(celda);
+    if (n !== null) return { valor: n, raw: asText(celda) };
+  }
+  return { valor: 0 };
+}
+
+function trackingCalcis(
+  hoja: string,
+  etiquetaDetectada: string,
+  importe: { valor: number; raw?: string }
+): TrackingValue<number> {
+  const ubicacion = `Hoja: ${hoja} / Etiqueta: ${etiquetaDetectada}`;
+  return trackingValue(importe.valor, "excel", ubicacion, importe.raw);
+}
+
+/**
+ * Escanea columnas A–B buscando una etiqueta semántica y devuelve el primer
+ * importe numérico en C, D, E… (saltando celdas vacías por combinaciones).
+ */
+function extractFromCalcisByLabel(
+  data: unknown[][],
+  hoja: string,
+  label: string,
+  filtroFila?: (compacto: string) => boolean
+): TrackingValue<number> | null {
+  const labelCompact = compactarTextoCalcis(label);
+  if (!labelCompact) return null;
+
+  for (let r = 0; r < data.length; r++) {
+    const row = data[r] ?? [];
+
+    const candidatos: { col: number; display: string; compacto: string }[] = [];
+
+    for (const col of CALCIS_COLS_ETIQUETA) {
+      const texto = asText(row[col]);
+      if (!texto || !etiquetaContieneLabel(texto, label)) continue;
+      candidatos.push({
+        col,
+        display: textoEtiquetaFila(row, col),
+        compacto: compactarTextoCalcis(texto),
+      });
+    }
+
+    const concatAB = textoEtiquetaConcatenadaAB(row);
+    if (concatAB && etiquetaContieneLabel(concatAB, label)) {
+      candidatos.push({
+        col: 1,
+        display: concatAB,
+        compacto: compactarTextoCalcis(concatAB),
+      });
+    }
+
+    for (const { col, display, compacto } of candidatos) {
+      if (filtroFila && !filtroFila(compacto)) continue;
+      const importe = importeAdyacenteCalcis(row, col);
+      return trackingCalcis(hoja, display, importe);
+    }
+  }
+
+  return null;
+}
+
+function extraerCampoCalcis(
+  data: unknown[][],
+  hoja: string,
+  def: CalcisCampoDef
+): TrackingValue<number> | null {
+  for (const label of def.labels) {
+    const valor = extractFromCalcisByLabel(data, hoja, label, def.filtroFila);
+    if (valor) return valor;
+  }
+  return null;
+}
+
+function advertirEtiquetasCalcisFaltantes(hoja: string, faltantes: string[]): void {
+  if (faltantes.length === 0) return;
+  logCalcis.warn(
+    `Hoja ${hoja}: no se localizaron etiquetas críticas de CALCIS — ${faltantes.join(", ")}`
+  );
+}
+
+/** Extrae la estructura fiscal completa de CALCIS por búsqueda semántica */
+export function parseCalcisHoja(rows: unknown[][], hoja: string): CalcisData {
+  const datos: CalcisData = {
+    hoja,
+    resultadoContable: null,
+    ajustes: null,
+    baseImponible: null,
+    cuotaIntegra: null,
+    retenciones: null,
+    cuotaDiferencial: null,
+    tipoImpositivo: null,
+    reservaCapitalizacion: null,
+  };
+
+  const faltantesCriticos: string[] = [];
+
+  for (const def of CALCIS_CAMPOS) {
+    const valor = extraerCampoCalcis(rows, hoja, def);
+    datos[def.campo] = valor;
+    if (def.critico && !valor) {
+      faltantesCriticos.push(`${def.campo} (${def.labels[0]})`);
+    }
+  }
+
+  for (const label of CALCIS_RESERVA_LABELS) {
+    const reserva = extractFromCalcisByLabel(rows, hoja, label);
+    if (reserva) {
+      datos.reservaCapitalizacion = reserva;
+      break;
+    }
+  }
+
+  advertirEtiquetasCalcisFaltantes(hoja, faltantesCriticos);
+
+  return datos;
+}
+
 // ── Ensamblado ──────────────────────────────────────────────────────────────
 
 export interface LibroCierreParseResult {
@@ -279,6 +489,11 @@ export function parseLibroCierre(workbook: XLSX.WorkBook, archivo: string): Libr
 
   const balRows = getRows(workbook, balanceSheet);
   const pgRows = pgSheet ? getRows(workbook, pgSheet) : [];
+  const calcisSheet = resolveSheet(sheetNames, "calcis");
+  const calcisRows = calcisSheet ? getRows(workbook, calcisSheet) : [];
+  const calcisParsed =
+    calcisSheet && calcisRows.length > 0 ? parseCalcisHoja(calcisRows, calcisSheet) : undefined;
+  const calcis = calcisParsed;
 
   const layoutActivo = detectarLayout(balRows, 2);
   const layoutPasivo = detectarLayout(balRows, 10);
@@ -323,6 +538,7 @@ export function parseLibroCierre(workbook: XLSX.WorkBook, archivo: string): Libr
     balanceEpigrafes,
     pygEpigrafes,
     notas: [],
+    calcis,
     hojasMinisterio: hojasMinisterio.length > 0 ? hojasMinisterio : undefined,
     hojasDetectadas: sheetNames,
   };

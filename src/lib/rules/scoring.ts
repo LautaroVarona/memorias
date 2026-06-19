@@ -21,6 +21,10 @@ const CROSS_INCONSISTENCY_PENALTY = 15;
 
 const CROSS_RULE_PREFIXES = ["CROSS_", "CIERRE_003", "CIERRE_004", "CIERRE_005", "CONSISTENCIA_GLOBAL_"];
 
+function isGuardrailSkip(r: RuleResult): boolean {
+  return r.status === "skip" || r.tags?.includes("guardrail_skip") === true;
+}
+
 function ruleWeight(r: RuleResult): number {
   return RULE_TYPE_WEIGHT[r.type as RuleType] ?? 1;
 }
@@ -42,17 +46,18 @@ export function computeCaseScore(
   results: RuleResult[],
   globalEval?: GlobalEvaluation
 ): CaseScore {
-  const criticos = results.filter((r) => r.severity === "critical").length;
-  const errores = results.filter((r) => r.severity === "error").length;
-  const warnings = results.filter((r) => r.severity === "warning");
-  const ok = results.filter((r) => r.severity === "ok").length;
-  const total = results.length;
+  const scored = results.filter((r) => !isGuardrailSkip(r));
+  const criticos = scored.filter((r) => r.severity === "critical").length;
+  const errores = scored.filter((r) => r.severity === "error").length;
+  const warnings = scored.filter((r) => r.severity === "warning");
+  const ok = scored.filter((r) => r.severity === "ok").length;
+  const total = scored.length;
 
   const passedPct = total > 0 ? Math.round((ok / total) * 100) : 100;
 
   const totalErrores = criticos + errores;
   let penalizacionCross = 0;
-  if (hasCrossInconsistencies(results)) {
+  if (hasCrossInconsistencies(scored)) {
     penalizacionCross = CROSS_INCONSISTENCY_PENALTY;
   }
 
@@ -71,7 +76,7 @@ export function computeCaseScore(
 
   let earnedWeight = 0;
   let totalWeight = 0;
-  for (const r of results) {
+  for (const r of scored) {
     const w = ruleWeight(r);
     totalWeight += w;
     if (r.severity === "ok") earnedWeight += w;
@@ -100,15 +105,16 @@ function deriveEstadoFromScore(errores: number, warnings: number): GlobalEstado 
 }
 
 export function summarizeResults(results: RuleResult[]) {
-  const criticos = results.filter((r) => r.severity === "critical").length;
-  const errores = results.filter((r) => r.severity === "error").length;
-  const warnings = results.filter((r) => r.severity === "warning").length;
-  const pass = results.filter((r) => r.severity === "ok").length;
+  const scored = results.filter((r) => !isGuardrailSkip(r));
+  const criticos = scored.filter((r) => r.severity === "critical").length;
+  const errores = scored.filter((r) => r.severity === "error").length;
+  const warnings = scored.filter((r) => r.severity === "warning").length;
+  const pass = scored.filter((r) => r.severity === "ok").length;
   return {
     critical: criticos + errores,
     warning: warnings,
     pass,
-    total: results.length,
+    total: scored.length,
     errores: criticos + errores,
     warnings,
     criticos,
