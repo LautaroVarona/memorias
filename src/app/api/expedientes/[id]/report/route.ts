@@ -54,10 +54,15 @@ export async function GET(
   const resumen = summarizeResults(ruleResults);
   const score = expediente.scoreSnapshot ? JSON.parse(expediente.scoreSnapshot) : null;
 
+  const caseRow = await prisma.datosExtraidos.findFirst({
+    where: { expedienteId: id, fuente: "case" },
+    orderBy: { createdAt: "desc" },
+  });
+
   let tipoMemoria = null as ReportData["expediente"]["tipoMemoria"];
-  if (expediente.caseDataSnapshot) {
+  if (caseRow?.payload) {
     try {
-      const caseData = JSON.parse(expediente.caseDataSnapshot) as CaseData;
+      const caseData = JSON.parse(caseRow.payload) as CaseData;
       tipoMemoria = caseData.memory?.keyData?.tipoMemoria ?? null;
     } catch {
       tipoMemoria = null;
