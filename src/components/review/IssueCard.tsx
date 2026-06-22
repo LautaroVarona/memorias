@@ -24,6 +24,8 @@ import { navigateToMemoriaSection } from "./memoria-navigator";
 interface IssueCardProps {
   validacion: ValidacionView;
   variant: "critical" | "warning";
+  /** Dentro de un apartado: menos chrome, sin enlaces redundantes */
+  embedded?: boolean;
 }
 
 function firstMemorySnippet(validacion: ValidacionView): string | undefined {
@@ -135,10 +137,12 @@ function EvidenceSection({
   evidencia,
   ruleId,
   validacion,
+  hideDiffStats = false,
 }: {
   evidencia: ValidacionView["evidencia"];
   ruleId: string;
   validacion: ValidacionView;
+  hideDiffStats?: boolean;
 }) {
   if (evidencia.length === 0) return null;
 
@@ -159,6 +163,9 @@ function EvidenceSection({
         const type = normalizeEvidenceType(ev);
         const narrative = evText(ev);
 
+        if (hideDiffStats && (ev.diffPrior || ev.diffCurrent)) return null;
+        if (hideDiffStats && narrative && /cambio de texto:/i.test(narrative)) return null;
+
         if (type === "memory" && narrative) {
           return (
             <MemoryEvidenceItem
@@ -176,7 +183,7 @@ function EvidenceSection({
   );
 }
 
-export function IssueCard({ validacion, variant }: IssueCardProps) {
+export function IssueCard({ validacion, variant, embedded = false }: IssueCardProps) {
   const issue: ParsedIssue = enrichIssue(validacion);
   const title = validacion.title ?? validacion.ruleId;
   const hasComparison = !!(issue.excelValue || issue.memoryValue);
@@ -195,7 +202,7 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
     !isRedundantMeta(issue.what, title) &&
     (issue.keyFact || issue.what.length > 0);
 
-  const canNavigateMemoria = memoryApartados.length > 0;
+  const canNavigateMemoria = !embedded && memoryApartados.length > 0;
 
   function goToMemoria(e?: React.MouseEvent) {
     e?.stopPropagation();
@@ -211,8 +218,14 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
   return (
     <article
       onClick={handleCardClick}
-      className={`rounded-lg border border-slate-200 border-l-2 bg-white px-2.5 py-2 ${severityBorderClass(severityLevel)} ${
-        canNavigateMemoria ? "cursor-pointer transition hover:border-slate-300 hover:bg-slate-50/50" : ""
+      className={`rounded-lg border bg-white px-2.5 py-2 ${
+        embedded
+          ? "border-transparent bg-transparent px-0 py-1 shadow-none"
+          : `border-slate-200 border-l-2 ${severityBorderClass(severityLevel)} ${
+              canNavigateMemoria
+                ? "cursor-pointer transition hover:border-slate-300 hover:bg-slate-50/50"
+                : ""
+            }`
       }`}
     >
       <div className="flex items-start gap-2">
@@ -228,7 +241,7 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
                 Riesgo fiscal
               </span>
             )}
-            {apartado && <ApartadoLink apartado={apartado} validacion={validacion} />}
+            {apartado && !embedded && <ApartadoLink apartado={apartado} validacion={validacion} />}
           </div>
 
           {canNavigateMemoria && (
@@ -269,12 +282,13 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
             </div>
           )}
 
-          {showDiff && <InterannualTextDiff evidencia={validacion.evidencia} />}
+          {showDiff && <InterannualTextDiff evidencia={validacion.evidencia} defaultOpen />}
 
           <EvidenceSection
             evidencia={validacion.evidencia}
             ruleId={validacion.ruleId}
             validacion={validacion}
+            hideDiffStats={showDiff}
           />
         </div>
       </div>

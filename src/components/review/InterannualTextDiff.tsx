@@ -67,9 +67,15 @@ function DiffLineColumns({ prior, current }: { prior: string; current: string })
   );
 }
 
-export function InterannualTextDiff({ evidencia }: { evidencia: EvidenceItem[] }) {
+export function InterannualTextDiff({
+  evidencia,
+  defaultOpen = true,
+}: {
+  evidencia: EvidenceItem[];
+  defaultOpen?: boolean;
+}) {
   const panels = buildPanels(evidencia);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [active, setActive] = useState(0);
 
   if (panels.length === 0) return null;
@@ -77,29 +83,20 @@ export function InterannualTextDiff({ evidencia }: { evidencia: EvidenceItem[] }
   const panel = panels[active] ?? panels[0];
 
   return (
-    <div className="mt-2">
+    <div className="mt-2 rounded-lg border border-slate-200 bg-white">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 transition hover:text-slate-900"
+        className="flex w-full items-center justify-between px-3 py-2 text-left"
       >
-        <svg
-          className={`h-4 w-4 transition ${open ? "rotate-90" : ""}`}
-          viewBox="0 0 20 20"
-          fill="currentColor"
-          aria-hidden
-        >
-          <path
-            fillRule="evenodd"
-            d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-            clipRule="evenodd"
-          />
-        </svg>
-        Ver comparativa
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+          Comparativa interanual
+        </span>
+        <span className="text-[11px] font-medium text-slate-500">{open ? "Ocultar" : "Ver"}</span>
       </button>
 
       {open && (
-        <div className="mt-1.5 rounded border border-slate-200 bg-slate-50/60 p-2">
+        <div className="border-t border-slate-100 p-2">
           {panels.length > 1 && (
             <div className="mb-3 flex flex-wrap gap-1.5">
               {panels.map((p, i) => (
@@ -119,9 +116,6 @@ export function InterannualTextDiff({ evidencia }: { evidencia: EvidenceItem[] }
             </div>
           )}
           <DiffLineColumns prior={panel.prior} current={panel.current} />
-          <p className="mt-2 text-[11px] text-slate-500">
-            Líneas resaltadas: rojo = solo en N-1, verde = solo en N.
-          </p>
         </div>
       )}
     </div>

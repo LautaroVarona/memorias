@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import type { ApartadoMemoria } from "@/types/domain";
 import type { GlobalEstado } from "@/types/case-data";
 import type { ValidacionView } from "./types";
@@ -8,6 +9,7 @@ import { CollapsibleSection } from "./CollapsibleSection";
 import { DocumentsBlock } from "./DocumentsBlock";
 import { ExpedienteHeader } from "./ExpedienteHeader";
 import { IssueCard } from "./IssueCard";
+import type { SeverityFilter } from "./group-by-apartado";
 import {
   filterConflictingPasses,
   isCritical,
@@ -55,6 +57,13 @@ export function ReviewDashboard({
   const advertencias = filtered.filter(isWarning).filter((v) => !isInterannualStatOnly(v.ruleId));
   const superadas = filtered.filter(isPass).filter((v) => !isInterannualStatOnly(v.ruleId));
   const byApartado = (memoriaSections?.length ?? 0) > 0;
+  const [incidentFilter, setIncidentFilter] = useState<SeverityFilter>("all");
+  const [scrollTick, setScrollTick] = useState(0);
+
+  const handleIncidentFilter = useCallback((filter: SeverityFilter, scroll?: boolean) => {
+    setIncidentFilter(filter);
+    if (scroll) setScrollTick((t) => t + 1);
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -67,19 +76,20 @@ export function ReviewDashboard({
         motivoGlobal={motivoGlobal}
         errores={errores}
         warnings={warnings}
+        activeFilter={byApartado ? incidentFilter : undefined}
+        onFilterIncidents={byApartado ? handleIncidentFilter : undefined}
       />
 
       <DocumentsBlock archivos={archivos} ejercicio={ejercicio} />
 
       {byApartado ? (
-        <>
-          <p className="text-[11px] text-slate-500">
-            Revisión organizada por apartado. Cada bloque muestra el contenido de la memoria y el
-            análisis correspondiente. Use los filtros para ver solo apartados con errores,
-            advertencias o sin incidencias.
-          </p>
-          <ApartadoReviewPanel sections={memoriaSections!} validaciones={validaciones} />
-        </>
+        <ApartadoReviewPanel
+          sections={memoriaSections!}
+          validaciones={validaciones}
+          filter={incidentFilter}
+          onFilterChange={setIncidentFilter}
+          scrollToFirstTick={scrollTick}
+        />
       ) : (
         <>
           {(criticos.length > 0 || advertencias.length > 0) && (

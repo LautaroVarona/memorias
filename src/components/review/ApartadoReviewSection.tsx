@@ -4,8 +4,8 @@ import { useState } from "react";
 import type { ApartadoReviewGroup } from "./group-by-apartado";
 import { formatApartadoHeading } from "./group-by-apartado";
 import type { ValidacionView } from "./types";
-import { HighlightText } from "./HighlightText";
 import { IssueCard } from "./IssueCard";
+import { MemoriaContentRenderer } from "./MemoriaContentRenderer";
 import { SeverityBadge, severityBorderClass } from "./SeverityBadge";
 import { isCritical, isPass, isWarning } from "./parse-issue";
 
@@ -33,23 +33,16 @@ function PassRow({ validacion }: { validacion: ValidacionView }) {
         />
       </svg>
       <div className="min-w-0">
-        <p className="text-xs font-medium text-slate-800">
-          {validacion.title ?? validacion.ruleId}
-        </p>
-        {(validacion.explanation ?? validacion.mensaje) && (
-          <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">
-            {validacion.explanation ?? validacion.mensaje}
-          </p>
-        )}
+        <p className="text-xs font-medium text-slate-700">{validacion.title ?? validacion.ruleId}</p>
       </div>
     </li>
   );
 }
 
 const STATUS_RING: Record<ApartadoReviewGroup["status"], string> = {
-  critical: "border-red-200 bg-red-50/30",
-  warning: "border-amber-200 bg-amber-50/30",
-  ok: "border-emerald-200 bg-emerald-50/20",
+  critical: "border-red-200 bg-red-50/20",
+  warning: "border-amber-200 bg-amber-50/20",
+  ok: "border-emerald-200/80 bg-white",
 };
 
 export function ApartadoReviewSection({
@@ -66,11 +59,13 @@ export function ApartadoReviewSection({
     if (controlledOpen === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   }
+
   const criticos = group.validations.filter(isCritical);
   const advertencias = group.validations.filter(isWarning);
   const superadas = group.validations.filter(isPass);
   const hasIssues = criticos.length > 0 || advertencias.length > 0;
-  const [showPasses, setShowPasses] = useState(!hasIssues);
+  const [showSource, setShowSource] = useState(false);
+  const [showPasses, setShowPasses] = useState(false);
 
   return (
     <article
@@ -88,26 +83,24 @@ export function ApartadoReviewSection({
             <h2 className="text-sm font-semibold text-slate-900">{formatApartadoHeading(group)}</h2>
             <SeverityBadge level={group.status} />
           </div>
-          <p className="mt-1 text-[11px] text-slate-500">
-            {group.counts.critical > 0 && (
-              <span className="text-red-600">{group.counts.critical} error{group.counts.critical !== 1 ? "es" : ""}</span>
-            )}
-            {group.counts.critical > 0 && group.counts.warning > 0 && " · "}
-            {group.counts.warning > 0 && (
-              <span className="text-amber-600">
-                {group.counts.warning} advertencia{group.counts.warning !== 1 ? "s" : ""}
-              </span>
-            )}
-            {(group.counts.critical > 0 || group.counts.warning > 0) && group.counts.pass > 0 && " · "}
-            {group.counts.pass > 0 && (
-              <span className="text-emerald-600">
-                {group.counts.pass} OK
-              </span>
-            )}
-            {group.validations.length === 0 && (
-              <span className="text-emerald-600">Sin incidencias detectadas</span>
-            )}
-          </p>
+          {hasIssues && (
+            <p className="mt-1 text-[11px] text-slate-500">
+              {group.counts.critical > 0 && (
+                <span className="font-medium text-red-600">
+                  {group.counts.critical} crítico{group.counts.critical !== 1 ? "s" : ""}
+                </span>
+              )}
+              {group.counts.critical > 0 && group.counts.warning > 0 && " · "}
+              {group.counts.warning > 0 && (
+                <span className="font-medium text-amber-600">
+                  {group.counts.warning} advertencia{group.counts.warning !== 1 ? "s" : ""}
+                </span>
+              )}
+            </p>
+          )}
+          {!hasIssues && (
+            <p className="mt-1 text-[11px] text-emerald-600">Sin incidencias</p>
+          )}
         </div>
         <span className="shrink-0 text-[11px] font-medium text-slate-500">
           {open ? "Ocultar" : "Ver"}
@@ -115,52 +108,71 @@ export function ApartadoReviewSection({
       </button>
 
       {open && (
-        <div className="space-y-4 border-t border-slate-200/80 bg-white/70 px-4 py-3">
-          {group.contenido !== undefined && (
-            <section>
-              <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                Contenido de la memoria
-              </h3>
-              {group.contenido ? (
-                <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
-                  <HighlightText text={group.contenido} query={highlightText} />
-                </p>
-              ) : (
-                <p className="mt-2 text-xs italic text-slate-400">Sin contenido detectado</p>
+        <div className="space-y-3 border-t border-slate-200/80 bg-white px-4 py-3">
+          {hasIssues && (
+            <section className="space-y-2">
+              {criticos.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-red-200 bg-red-50/60 p-2.5">
+                  {criticos.map((v) => (
+                    <IssueCard key={v.id} validacion={v} variant="critical" embedded />
+                  ))}
+                </div>
+              )}
+              {advertencias.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/50 p-2.5">
+                  {advertencias.map((v) => (
+                    <IssueCard key={v.id} validacion={v} variant="warning" embedded />
+                  ))}
+                </div>
               )}
             </section>
           )}
 
-          {hasIssues && (
-            <section className="space-y-1.5">
-              <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                Análisis
-              </h3>
-              {criticos.map((v) => (
-                <IssueCard key={v.id} validacion={v} variant="critical" />
-              ))}
-              {advertencias.map((v) => (
-                <IssueCard key={v.id} validacion={v} variant="warning" />
-              ))}
+          {group.contenido !== undefined && (
+            <section className="border-t border-slate-100 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSource(!showSource)}
+                className="flex w-full items-center justify-between text-left"
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Ver texto fuente de la memoria
+                </span>
+                <span className="text-[11px] font-medium text-slate-500">
+                  {showSource ? "Ocultar" : "Mostrar"}
+                </span>
+              </button>
+              {showSource && (
+                <div className="mt-2 max-h-96 overflow-y-auto rounded-md border border-slate-100 bg-slate-50/50 p-3">
+                  {group.contenido ? (
+                    <MemoriaContentRenderer
+                      content={group.contenido}
+                      highlightText={highlightText}
+                    />
+                  ) : (
+                    <p className="text-sm italic text-slate-400">Sin contenido detectado</p>
+                  )}
+                </div>
+              )}
             </section>
           )}
 
           {superadas.length > 0 && (
-            <section>
+            <section className="border-t border-slate-100 pt-2">
               <button
                 type="button"
                 onClick={() => setShowPasses(!showPasses)}
                 className="flex w-full items-center justify-between text-left"
               >
-                <h3 className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                  Validaciones superadas ({superadas.length})
-                </h3>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700/80">
+                  Validaciones OK ({superadas.length})
+                </span>
                 <span className="text-[11px] font-medium text-emerald-600">
                   {showPasses ? "Ocultar" : "Ver"}
                 </span>
               </button>
               {showPasses && (
-                <ul className="mt-2 divide-y divide-emerald-100/80 rounded-lg border border-emerald-100 bg-emerald-50/30 px-3">
+                <ul className="mt-2 divide-y divide-emerald-100/80">
                   {superadas.map((v) => (
                     <PassRow key={v.id} validacion={v} />
                   ))}

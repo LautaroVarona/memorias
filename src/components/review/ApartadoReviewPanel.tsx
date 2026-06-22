@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApartadoMemoria } from "@/types/domain";
 import type { ValidacionView } from "./types";
 import { ApartadoReviewSection } from "./ApartadoReviewSection";
@@ -15,6 +15,9 @@ import { subscribeMemoriaNavigate } from "./memoria-navigator";
 interface ApartadoReviewPanelProps {
   sections: ApartadoMemoria[];
   validaciones: ValidacionView[];
+  filter: SeverityFilter;
+  onFilterChange: (filter: SeverityFilter) => void;
+  scrollToFirstTick: number;
 }
 
 const FILTER_OPTIONS: { id: SeverityFilter; label: string; activeClass: string }[] = [
@@ -24,10 +27,16 @@ const FILTER_OPTIONS: { id: SeverityFilter; label: string; activeClass: string }
   { id: "ok", label: "OK", activeClass: "bg-emerald-600 text-white" },
 ];
 
-export function ApartadoReviewPanel({ sections, validaciones }: ApartadoReviewPanelProps) {
-  const [filter, setFilter] = useState<SeverityFilter>("all");
+export function ApartadoReviewPanel({
+  sections,
+  validaciones,
+  filter,
+  onFilterChange,
+  scrollToFirstTick,
+}: ApartadoReviewPanelProps) {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [highlights, setHighlights] = useState<Record<string, string | undefined>>({});
+  const lastScrollTick = useRef(0);
 
   const groups = useMemo(
     () => buildApartadoGroups(sections, validaciones),
@@ -36,55 +45,65 @@ export function ApartadoReviewPanel({ sections, validaciones }: ApartadoReviewPa
   const statusCounts = useMemo(() => countApartadoStatuses(groups), [groups]);
   const visible = useMemo(() => filterApartadoGroups(groups, filter), [groups, filter]);
 
-  const handleNavigate = useCallback((target: { apartado?: string; highlightText?: string }) => {
-    if (!target.apartado) return;
-    const num = target.apartado.replace(/\D/g, "").padStart(2, "0");
-    setFilter("all");
-    setOpenSections((prev) => ({ ...prev, [num]: true }));
-    if (target.highlightText) {
-      setHighlights((prev) => ({ ...prev, [num]: target.highlightText }));
-    }
+  const scrollToGroup = useCallback((num: string) => {
+    const id = num === "general" ? "apartado-general" : `apartado-${num}`;
     window.requestAnimationFrame(() => {
-      document.getElementById(`apartado-${num}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }, []);
+
+  useEffect(() => {
+    if (scrollToFirstTick === 0 || scrollToFirstTick === lastScrollTick.current) return;
+    lastScrollTick.current = scrollToFirstTick;
+    const first = visible[0];
+    if (!first) return;
+    setOpenSections((prev) => ({ ...prev, [first.num]: true }));
+    scrollToGroup(first.num);
+  }, [scrollToFirstTick, visible, scrollToGroup]);
+
+  const handleNavigate = useCallback(
+    (target: { apartado?: string; highlightText?: string }) => {
+      if (!target.apartado) return;
+      const num = target.apartado.replace(/\D/g, "").padStart(2, "0");
+      onFilterChange("all");
+      setOpenSections((prev) => ({ ...prev, [num]: true }));
+      if (target.highlightText) {
+        setHighlights((prev) => ({ ...prev, [num]: target.highlightText }));
+      }
+      scrollToGroup(num);
+    },
+    [onFilterChange, scrollToGroup]
+  );
 
   useEffect(() => subscribeMemoriaNavigate(handleNavigate), [handleNavigate]);
 
   if (groups.length === 0) return null;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-          Filtrar apartados
-        </span>
-        <div className="flex flex-wrap gap-1.5">
-          {FILTER_OPTIONS.map((opt) => {
-            const count =
-              opt.id === "all"
-                ? groups.length
-                : statusCounts[opt.id as keyof typeof statusCounts];
-            const active = filter === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setFilter(opt.id)}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
-                  active
-                    ? opt.activeClass
-                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {opt.label}
-                <span className={`ml-1 tabular-nums ${active ? "opacity-90" : "text-slate-400"}`}>
-                  ({count})
-                </span>
-              </button>
-            );
-          })}
-        </div>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {FILTER_OPTIONS.map((opt) => {
+          const count =
+            opt.id === "all" ? groups.length : statusCounts[opt.id as keyof typeof statusCounts];
+          const active = filter === opt.id;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => onFilterChange(opt.id)}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
+                active
+                  ? opt.activeClass
+                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {opt.label}
+              <span className={`ml-1 tabular-nums ${active ? "opacity-90" : "text-slate-400"}`}>
+                ({count})
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {visible.length === 0 ? (
@@ -92,12 +111,12 @@ export function ApartadoReviewPanel({ sections, validaciones }: ApartadoReviewPa
           Ningún apartado coincide con este filtro.
         </p>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {visible.map((group) => (
             <ApartadoReviewSection
               key={group.num}
               group={group}
-              defaultOpen={group.status !== "ok" || filter !== "all"}
+              defaultOpen={group.status !== "ok"}
               open={openSections[group.num]}
               onOpenChange={(next) =>
                 setOpenSections((prev) => ({ ...prev, [group.num]: next }))
