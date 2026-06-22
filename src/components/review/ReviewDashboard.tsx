@@ -7,7 +7,6 @@ import { ApartadoReviewPanel } from "./ApartadoReviewPanel";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { DocumentsBlock } from "./DocumentsBlock";
 import { ExpedienteHeader } from "./ExpedienteHeader";
-import { InterannualBars } from "./InterannualBars";
 import { IssueCard } from "./IssueCard";
 import {
   filterConflictingPasses,
@@ -155,8 +154,6 @@ export function ReviewDashboard({
           )}
         </>
       )}
-
-      <InterannualBars validaciones={validaciones} />
     </div>
   );
 }
