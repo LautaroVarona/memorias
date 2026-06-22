@@ -21,19 +21,34 @@ export async function POST(
   try {
     const formData = await request.formData();
     const fileName = String(formData.get("fileName") ?? "");
+    const uploadKey = String(formData.get("uploadKey") ?? "").trim() || undefined;
     const chunkIndex = parseInt(String(formData.get("chunkIndex") ?? ""), 10);
     const totalChunks = parseInt(String(formData.get("totalChunks") ?? ""), 10);
+    const fileSize = parseInt(String(formData.get("fileSize") ?? ""), 10);
+    const lastModified = parseInt(String(formData.get("lastModified") ?? ""), 10);
     const chunk = formData.get("chunk") as File | null;
+    const fileMeta =
+      Number.isFinite(fileSize) && Number.isFinite(lastModified)
+        ? { size: fileSize, lastModified }
+        : undefined;
 
     if (!fileName || !chunk || Number.isNaN(chunkIndex) || Number.isNaN(totalChunks)) {
       return NextResponse.json({ error: "Datos de chunk inválidos" }, { status: 400 });
     }
 
-    await receiveFileChunk(id, fileName, chunkIndex, totalChunks, chunk);
+    await receiveFileChunk(
+      id,
+      fileName,
+      chunkIndex,
+      totalChunks,
+      chunk,
+      uploadKey,
+      fileMeta
+    );
 
     const isLast = chunkIndex === totalChunks - 1;
     if (isLast) {
-      await finalizeChunkedFile(id, fileName);
+      await finalizeChunkedFile(id, fileName, uploadKey, fileMeta);
       log.info("chunk upload completado", { expedienteId: id, fileName, totalChunks });
     }
 

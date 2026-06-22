@@ -1,5 +1,10 @@
 import { classifyByExtension } from "@/lib/process/classify-extension";
 import {
+  buildUploadMeta,
+  matchesStoredFile,
+  resolveUniqueDisplayName,
+} from "@/lib/files/file-identity";
+import {
   idbDelete,
   idbDeleteBlob,
   idbDeleteByIndex,
@@ -130,12 +135,13 @@ export async function addArchivos(expedienteId: string, files: File[]): Promise<
   if (!expediente) throw new Error("Expediente no encontrado");
 
   const existing = await listArchivos(expedienteId);
+  const takenNames = new Set(existing.map((a) => a.nombre));
   const uploaded: StoredArchivo[] = [];
 
   for (const file of files) {
     if (!file.size) continue;
 
-    const dup = existing.find((a) => a.nombre === file.name);
+    const dup = existing.find((a) => matchesStoredFile(a.metadata, file));
     if (dup) {
       uploaded.push(dup);
       continue;
@@ -143,18 +149,26 @@ export async function addArchivos(expedienteId: string, files: File[]): Promise<
 
     const id = newId();
     const tipo = classifyByExtension(file.name);
+    const nombre = resolveUniqueDisplayName(file, takenNames);
+    takenNames.add(nombre);
     const buffer = await file.arrayBuffer();
+    const uploadMeta = buildUploadMeta(file);
     const archivo: StoredArchivo = {
       id,
       expedienteId,
       tipo,
-      nombre: file.name,
-      metadata: JSON.stringify({ size: file.size, tipo, clasificacion: "extension" }),
+      nombre,
+      metadata: JSON.stringify({
+        ...uploadMeta,
+        tipo,
+        clasificacion: "extension",
+      }),
       createdAt: nowIso(),
     };
 
     await idbPutBlob(id, buffer);
     await idbPut("archivos", archivo);
+    existing.push(archivo);
     uploaded.push(archivo);
   }
 

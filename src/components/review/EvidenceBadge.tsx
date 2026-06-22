@@ -16,7 +16,6 @@ import {
   textIncludesApartado,
 } from "@/lib/evidence/apartado-ref";
 import { navigateToMemoriaSection } from "./memoria-navigator";
-import { CopyLocatorButton } from "./CopyLocatorButton";
 import { ExpandableText } from "./ExpandableText";
 import { EvidenceLocator } from "./EvidenceLocator";
 
@@ -93,7 +92,6 @@ export function EvidenceBadge({
         <span className={`min-w-0 truncate text-xs font-medium ${isMemory ? "text-blue-800" : "text-emerald-800"}`}>
           {label}
         </span>
-        {isMemory && <CopyLocatorButton text={label} />}
       </div>
     );
   }
@@ -124,7 +122,6 @@ export function EvidenceBadge({
           )}
           <ExpandableText text={narrative} className="text-slate-600" clampLines={3} />
         </div>
-        {isMemory && <CopyLocatorButton text={narrative} />}
       </div>
     );
   }

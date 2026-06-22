@@ -5,31 +5,44 @@ import { EvidenceBadge } from "./EvidenceBadge";
 import { VinculadasEvidenceFromEvidencia } from "./EvidenceBlock";
 import { ComparativeValues } from "./ComparativeValues";
 import { ExpandableText } from "./ExpandableText";
-import { CopyTextButton } from "./CopyTextButton";
 import { InterannualTextDiff } from "./InterannualTextDiff";
-import { formatEvidenceListForCopy } from "./evidence-utils";
 import { SeverityBadge, severityBorderClass } from "./SeverityBadge";
 import { navigateToMemoriaFromValidation } from "./navigate-from-validation";
 import {
   enrichIssue,
+  extractApartadoFromEvidence,
   extractApartadoInfo,
   isRedundantMeta,
+  normalizeEvidenceType,
   supportsInterannualDiff,
 } from "./parse-issue";
 import type { ApartadoInfo } from "@/lib/evidence/apartado-ref";
 import { formatApartadoLabel } from "@/lib/evidence/apartado-ref";
+import { evText, extractSearchSnippet } from "./evidence-utils";
+import { navigateToMemoriaSection } from "./memoria-navigator";
 
 interface IssueCardProps {
   validacion: ValidacionView;
   variant: "critical" | "warning";
 }
 
+function firstMemorySnippet(validacion: ValidacionView): string | undefined {
+  for (const ev of validacion.evidencia) {
+    if (normalizeEvidenceType(ev) !== "memory") continue;
+    const snippet = extractSearchSnippet(evText(ev));
+    if (snippet) return snippet;
+  }
+  return undefined;
+}
+
 function ApartadoLink({
   apartado,
   validacion,
+  highlightText,
 }: {
   apartado: ApartadoInfo;
   validacion: ValidacionView;
+  highlightText?: string;
 }) {
   const short = apartado.title
     ? `Ap. ${apartado.num} · ${apartado.title.length > 36 ? `${apartado.title.slice(0, 35)}…` : apartado.title}`
@@ -40,7 +53,10 @@ function ApartadoLink({
       type="button"
       onClick={(e) => {
         e.stopPropagation();
-        navigateToMemoriaFromValidation(validacion);
+        navigateToMemoriaSection({
+          apartado: apartado.num,
+          highlightText: highlightText ?? firstMemorySnippet(validacion),
+        });
       }}
       className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-600 transition hover:bg-blue-50 hover:text-blue-700"
       title={`Ir a ${formatApartadoLabel(apartado)}`}
@@ -57,30 +73,95 @@ function ApartadoLink({
   );
 }
 
+function collectMemoryApartados(validacion: ValidacionView): ApartadoInfo[] {
+  const seen = new Set<string>();
+  const apartados: ApartadoInfo[] = [];
+
+  for (const ev of validacion.evidencia) {
+    if (normalizeEvidenceType(ev) !== "memory") continue;
+    const info = extractApartadoFromEvidence(ev);
+    if (!info || seen.has(info.num)) continue;
+    seen.add(info.num);
+    apartados.push(info);
+  }
+
+  if (apartados.length > 0) return apartados;
+
+  const fallback = extractApartadoInfo(validacion);
+  return fallback ? [fallback] : [];
+}
+
+function MemoryEvidenceItem({
+  evidence,
+  showApartado,
+  validacion,
+}: {
+  evidence: ValidacionView["evidencia"][number];
+  showApartado: boolean;
+  validacion: ValidacionView;
+}) {
+  const narrative = evText(evidence);
+  const apartado = extractApartadoFromEvidence(evidence);
+
+  if (!narrative) {
+    return <EvidenceBadge evidence={evidence} compact />;
+  }
+
+  return (
+    <div className="space-y-0.5">
+      {showApartado && apartado && (
+        <ApartadoLink
+          apartado={apartado}
+          validacion={validacion}
+          highlightText={extractSearchSnippet(narrative)}
+        />
+      )}
+      <ExpandableText text={narrative} className="text-xs text-slate-600" clampLines={3} />
+    </div>
+  );
+}
+
 function EvidenceSection({
   evidencia,
   ruleId,
+  validacion,
 }: {
   evidencia: ValidacionView["evidencia"];
   ruleId: string;
+  validacion: ValidacionView;
 }) {
   if (evidencia.length === 0) return null;
 
   if (ruleId === "CROSS_001") {
     return (
-      <div className="mt-2 border-t border-slate-100 pt-2">
+      <div className="mt-2">
         <VinculadasEvidenceFromEvidencia evidencia={evidencia} />
       </div>
     );
   }
 
+  const memoryApartados = collectMemoryApartados({ ...validacion, evidencia });
+  const showPerItemApartado = memoryApartados.length > 1;
+
   return (
-    <div className="mt-2 border-t border-slate-100 pt-2">
-      <div className="space-y-1">
-        {evidencia.map((ev, i) => (
-          <EvidenceBadge key={i} evidence={ev} compact />
-        ))}
-      </div>
+    <div className="mt-1.5 space-y-2">
+      {evidencia.map((ev, i) => {
+        const type = normalizeEvidenceType(ev);
+        const narrative = evText(ev);
+
+        if (type === "memory" && narrative) {
+          return (
+            <MemoryEvidenceItem
+              key={i}
+              evidence={ev}
+              showApartado={showPerItemApartado}
+              validacion={validacion}
+            />
+          );
+        }
+
+        return <EvidenceBadge key={i} evidence={ev} compact />;
+      })}
     </div>
   );
 }
@@ -89,19 +170,22 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
   const issue: ParsedIssue = enrichIssue(validacion);
   const title = validacion.title ?? validacion.ruleId;
   const hasComparison = !!(issue.excelValue || issue.memoryValue);
-  const apartado = extractApartadoInfo(validacion);
+  const memoryApartados = collectMemoryApartados(validacion);
+  const apartado = memoryApartados.length === 1 ? memoryApartados[0] : undefined;
   const showDiff = supportsInterannualDiff(validacion.ruleId);
-  const copyText = formatEvidenceListForCopy(validacion.evidencia);
-  const hasCopyableEvidence = copyText.trim().length > 0;
+  const hasNarrativeMemoryEvidence = validacion.evidencia.some(
+    (ev) => normalizeEvidenceType(ev) === "memory" && evText(ev).length > 0
+  );
 
   const severityLevel = variant === "critical" ? "critical" : "warning";
   const showWhat =
     !hasComparison &&
+    !hasNarrativeMemoryEvidence &&
     issue.what &&
     !isRedundantMeta(issue.what, title) &&
     (issue.keyFact || issue.what.length > 0);
 
-  const canNavigateMemoria = !!apartado;
+  const canNavigateMemoria = memoryApartados.length > 0;
 
   function handleCardClick(e: React.MouseEvent<HTMLElement>) {
     if (!canNavigateMemoria) return;
@@ -117,9 +201,8 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
       }`}
     >
       <div className="flex items-start gap-2">
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="shrink-0">
           <SeverityBadge level={severityLevel} />
-          {hasCopyableEvidence && <CopyTextButton text={copyText} variant="icon" />}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -160,7 +243,11 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
 
           {showDiff && <InterannualTextDiff evidencia={validacion.evidencia} />}
 
-          <EvidenceSection evidencia={validacion.evidencia} ruleId={validacion.ruleId} />
+          <EvidenceSection
+            evidencia={validacion.evidencia}
+            ruleId={validacion.ruleId}
+            validacion={validacion}
+          />
         </div>
       </div>
     </article>

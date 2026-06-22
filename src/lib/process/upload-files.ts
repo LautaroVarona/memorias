@@ -1,5 +1,11 @@
 import { prisma } from "@/lib/db";
 import { saveUploadedWebFile } from "@/lib/files";
+import {
+  buildUploadMeta,
+  fingerprintFromFile,
+  matchesStoredFile,
+  resolveUniqueDisplayName,
+} from "@/lib/files/file-identity";
 import { classifyByExtension } from "@/lib/process/classify-extension";
 import { logger } from "@/lib/logger";
 
@@ -27,6 +33,11 @@ export async function uploadFilesToExpediente(expedienteId: string, files: File[
   }
 
   const uploaded = [];
+  const existingArchivos = await prisma.archivo.findMany({
+    where: { expedienteId },
+    select: { id: true, nombre: true, metadata: true },
+  });
+  const takenNames = new Set(existingArchivos.map((a) => a.nombre));
 
   for (const file of files) {
     if (!file.size) {
@@ -34,38 +45,46 @@ export async function uploadFilesToExpediente(expedienteId: string, files: File[
       continue;
     }
 
-    const existing = await prisma.archivo.findFirst({
-      where: { expedienteId, nombre: file.name },
-    });
-    if (existing) {
-      log.info("archivo duplicado, se reutiliza registro existente", {
+    const duplicate = existingArchivos.find((a) => matchesStoredFile(a.metadata, file));
+    if (duplicate) {
+      log.info("archivo idéntico, se reutiliza registro existente", {
         expedienteId,
         fileName: file.name,
-        archivoId: existing.id,
+        archivoId: duplicate.id,
+        fingerprint: fingerprintFromFile(file),
       });
-      uploaded.push(existing);
+      uploaded.push(duplicate);
       continue;
     }
 
+    const displayName = resolveUniqueDisplayName(file, takenNames);
+    takenNames.add(displayName);
     const tipo = classifyByExtension(file.name);
     const saveStarted = Date.now();
 
     try {
-      const { path: ruta, size } = await saveUploadedWebFile(expedienteId, file.name, file);
+      const { path: ruta, size } = await saveUploadedWebFile(expedienteId, displayName, file);
+      const uploadMeta = buildUploadMeta(file);
 
       const archivo = await prisma.archivo.create({
         data: {
           expedienteId,
           tipo,
-          nombre: file.name,
+          nombre: displayName,
           ruta,
-          metadata: JSON.stringify({ size, tipo, clasificacion: "extension" }),
+          metadata: JSON.stringify({
+            ...uploadMeta,
+            size,
+            tipo,
+            clasificacion: "extension",
+          }),
         },
       });
 
       log.info("archivo guardado en disco y registrado", {
         expedienteId,
         fileName: file.name,
+        displayName,
         tipo,
         sizeBytes: size,
         ruta,
@@ -73,6 +92,7 @@ export async function uploadFilesToExpediente(expedienteId: string, files: File[
         durationMs: Date.now() - saveStarted,
       });
 
+      existingArchivos.push({ id: archivo.id, nombre: archivo.nombre, metadata: archivo.metadata });
       uploaded.push(archivo);
     } catch (err) {
       log.error("error al guardar archivo", err, {

@@ -1,6 +1,48 @@
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
-import { withText } from "@/lib/rules/helpers/evidence";
+import { withMemoryLocator, withText } from "@/lib/rules/helpers/evidence";
+import type { ApartadoMemoria } from "@/types/domain";
 import type { RuleDefinition } from "../types";
+
+interface FraseCortadaHallazgo {
+  fragmento: string;
+  sectionId?: string;
+  seccion?: string;
+}
+
+function findSectionForFragment(
+  sections: ApartadoMemoria[],
+  fragment: string
+): { sectionId?: string; seccion?: string } {
+  const needle = fragment.replace(/\.\.\.$/, "").trim().slice(0, 60);
+  if (!needle) return {};
+
+  for (const sec of sections) {
+    if (sec.contenido.includes(needle)) {
+      return {
+        sectionId:
+          sec.numero !== undefined ? String(sec.numero).padStart(2, "0") : sec.id,
+        seccion: sec.titulo,
+      };
+    }
+  }
+
+  return {};
+}
+
+function buildFraseCortadaEvidence(hallazgos: FraseCortadaHallazgo[]) {
+  return hallazgos.map((h) => {
+    const reference = h.seccion ?? "Párrafo problemático";
+    if (h.sectionId) {
+      return withMemoryLocator(
+        reference,
+        h.fragmento,
+        { section: h.sectionId, sectionTitle: h.seccion },
+        "low"
+      );
+    }
+    return withText("memory", reference, h.fragmento, "low");
+  });
+}
 
 export const formalRules: RuleDefinition[] = [
   {
@@ -12,11 +54,16 @@ export const formalRules: RuleDefinition[] = [
     referencia: "Memoria — calidad formal",
     execute(data) {
       const cortadas = data.memory?.formal.frasesCortadas ?? [];
+      const sections = data.memory?.sections ?? [];
+      const hallazgos: FraseCortadaHallazgo[] = cortadas.map((fragmento) => ({
+        fragmento,
+        ...findSectionForFragment(sections, fragmento),
+      }));
       return {
         passed: cortadas.length === 0,
         severity: "warning",
         sugerencia: "Revise párrafos incompletos que puedan indicar cortes de edición.",
-        data: { cortadas },
+        data: { cortadas, hallazgos },
       };
     },
     explanation(outcome) {
@@ -32,8 +79,8 @@ export const formalRules: RuleDefinition[] = [
     },
     evidence(outcome) {
       if (outcome.passed) return [];
-      return ((outcome.data.cortadas as string[]) ?? []).slice(0, 3).map((t) =>
-        withText("memory", "Párrafo problemático", t, "low")
+      return buildFraseCortadaEvidence(
+        ((outcome.data.hallazgos as FraseCortadaHallazgo[]) ?? []).slice(0, 3)
       );
     },
   },

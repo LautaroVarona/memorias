@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { formatFileQueueLabel } from "@/lib/files/file-identity";
 
 const ACCEPTED_EXT = /\.(xlsx|xls|xlsm|doc|docx|rtf|pdf)$/i;
 
@@ -133,11 +134,12 @@ export function Dropzone({ onFilesSelected, disableInteraction = false }: Dropzo
           <ul className="space-y-1.5 text-sm text-slate-600">
             {selected.map((f) => {
               const key = fileKey(f);
+              const label = formatFileQueueLabel(f, selected);
               return (
                 <li key={key} className="flex items-center gap-2 rounded-md bg-slate-50 px-2 py-1.5">
                   <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-blue-500" />
                   <span className="min-w-0 flex-1 truncate">
-                    {f.name}{" "}
+                    {label}{" "}
                     <span className="text-slate-400">({(f.size / 1024).toFixed(1)} KB)</span>
                   </span>
                   {!disableInteraction && (
