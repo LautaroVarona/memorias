@@ -37,6 +37,8 @@ export function resolveMemoriaPrincipalArchivo(
     expedienteEjercicio
   );
 
-  const { principal } = assignMemoriaArchivos(memoriasConMeta, mainYear, priorYear);
-  return principal;
+  const refs = memoriasConMeta.map((m) => ({ id: m.id, nombre: m.nombre, meta: m.meta }));
+  const { principal } = assignMemoriaArchivos(refs, mainYear, priorYear);
+  if (!principal) return undefined;
+  return memorias.find((m) => m.id === principal.id);
 }

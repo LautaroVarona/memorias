@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import type { EvidenceItem } from "./types";
-import { evRef, evValue } from "./parse-issue";
-import { evText } from "./evidence-utils";
+import { evRef } from "./parse-issue";
 
 interface DiffPanel {
   id: string;
