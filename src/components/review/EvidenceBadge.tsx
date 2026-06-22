@@ -3,6 +3,7 @@ import { normalizeEvidenceType } from "./parse-issue";
 import {
   evidenceDisplayValue,
   evText,
+  extractSearchSnippet,
   formatEvidenceBadgeLabel,
   formatEvidenceLocator,
   formatMemoryTracingSubtitle,
@@ -14,6 +15,7 @@ import {
   formatApartadoShort,
   textIncludesApartado,
 } from "@/lib/evidence/apartado-ref";
+import { navigateToMemoriaSection } from "./memoria-navigator";
 import { CopyLocatorButton } from "./CopyLocatorButton";
 import { ExpandableText } from "./ExpandableText";
 import { EvidenceLocator } from "./EvidenceLocator";
@@ -55,6 +57,15 @@ export function EvidenceBadge({
       ? `${formatApartadoShort(apartado)} · `
       : "";
 
+  function navigateToEvidence(e?: React.MouseEvent | React.KeyboardEvent) {
+    e?.stopPropagation();
+    if (!isMemory || !apartado) return;
+    navigateToMemoriaSection({
+      apartado: apartado.num,
+      highlightText: extractSearchSnippet(evText(evidence)),
+    });
+  }
+
   const badgeClass = isMemory
     ? "border-blue-200 bg-blue-50 text-blue-700"
     : "border-emerald-200 bg-emerald-50 text-emerald-700";
@@ -62,7 +73,22 @@ export function EvidenceBadge({
   if (isSimpleStatusEvidence(evidence)) {
     return (
       <div
-        className={`flex items-center justify-between gap-2 rounded border px-2 py-1 ${isMemory ? "border-blue-100 bg-blue-50/50" : "border-emerald-100 bg-emerald-50/50"}`}
+        role={isMemory && apartado ? "button" : undefined}
+        tabIndex={isMemory && apartado ? 0 : undefined}
+        onClick={isMemory && apartado ? (e) => navigateToEvidence(e) : undefined}
+        onKeyDown={
+          isMemory && apartado
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigateToEvidence(e);
+                }
+              }
+            : undefined
+        }
+        className={`flex items-center justify-between gap-2 rounded border px-2 py-1 ${isMemory ? "border-blue-100 bg-blue-50/50" : "border-emerald-100 bg-emerald-50/50"} ${
+          isMemory && apartado ? "cursor-pointer hover:border-blue-200" : ""
+        }`}
       >
         <span className={`min-w-0 truncate text-xs font-medium ${isMemory ? "text-blue-800" : "text-emerald-800"}`}>
           {label}
@@ -74,7 +100,22 @@ export function EvidenceBadge({
 
   if (isNarrative && showNarrative) {
     return (
-      <div className="flex items-start gap-1.5">
+      <div
+        role={isMemory && apartado ? "button" : undefined}
+        tabIndex={isMemory && apartado ? 0 : undefined}
+        onClick={isMemory && apartado ? (e) => navigateToEvidence(e) : undefined}
+        onKeyDown={
+          isMemory && apartado
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigateToEvidence(e);
+                }
+              }
+            : undefined
+        }
+        className={`flex items-start gap-1.5 ${isMemory && apartado ? "cursor-pointer rounded hover:bg-blue-50/40" : ""}`}
+      >
         <div className="min-w-0 flex-1">
           {memoryTracing && (
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
@@ -89,10 +130,8 @@ export function EvidenceBadge({
   }
 
   if (compact) {
-    return (
-      <span
-        className={`inline-flex max-w-full items-center gap-1.5 rounded border px-2 py-0.5 text-xs font-medium ${badgeClass}`}
-      >
+    const content = (
+      <>
         <span className="truncate">
           {apartadoPrefix}
           {label}
@@ -103,6 +142,26 @@ export function EvidenceBadge({
             <span className="shrink-0 font-mono tabular-nums">{displayValue}</span>
           </>
         )}
+      </>
+    );
+
+    if (isMemory && apartado) {
+      return (
+        <button
+          type="button"
+          onClick={(e) => navigateToEvidence(e)}
+          className={`inline-flex max-w-full items-center gap-1.5 rounded border px-2 py-0.5 text-xs font-medium ${badgeClass} cursor-pointer hover:opacity-90`}
+        >
+          {content}
+        </button>
+      );
+    }
+
+    return (
+      <span
+        className={`inline-flex max-w-full items-center gap-1.5 rounded border px-2 py-0.5 text-xs font-medium ${badgeClass}`}
+      >
+        {content}
       </span>
     );
   }

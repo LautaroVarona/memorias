@@ -2,14 +2,12 @@
 
 import { useRef } from "react";
 import type { GlobalEstado } from "@/types/case-data";
-import type { CaseData } from "@/types/case-data";
 import type { ValidacionView } from "./types";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { DocumentsBlock } from "./DocumentsBlock";
 import { ExpedienteHeader } from "./ExpedienteHeader";
 import { InterannualBars } from "./InterannualBars";
 import { IssueCard } from "./IssueCard";
-import { MemoriaSectionsPreview } from "./MemoriaSectionsPreview";
 import {
   filterConflictingPasses,
   isCritical,
@@ -37,7 +35,6 @@ interface ReviewDashboardProps {
   motivoGlobal?: string;
   errores: number;
   warnings: number;
-  caseData?: CaseData | null;
 }
 
 export function ReviewDashboard({
@@ -51,7 +48,6 @@ export function ReviewDashboard({
   motivoGlobal,
   errores,
   warnings,
-  caseData,
 }: ReviewDashboardProps) {
   const criticalRef = useRef<HTMLElement>(null);
   const warningsRef = useRef<HTMLElement>(null);
@@ -87,11 +83,6 @@ export function ReviewDashboard({
       />
 
       <DocumentsBlock archivos={archivos} ejercicio={ejercicio} />
-
-      <MemoriaSectionsPreview
-        sections={caseData?.memory?.sections ?? []}
-        ejercicio={ejercicio}
-      />
 
       {criticos.length > 0 && (
         <section ref={criticalRef} id="errores-criticos" className="scroll-mt-6 space-y-2">

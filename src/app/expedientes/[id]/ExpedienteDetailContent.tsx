@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ReviewDashboard } from "@/components/review/ReviewDashboard";
+import { MemoriaViewer } from "@/components/review/MemoriaViewer";
+import { resolveMemoriaPrincipalArchivo } from "@/components/review/resolve-memoria-archivo";
 import type { ValidacionView } from "@/components/review/types";
 import { Dropzone } from "@/components/upload/Dropzone";
 import {
@@ -146,9 +148,12 @@ export function ExpedienteDetailContent() {
   const hasResults = data.validaciones.length > 0;
   const errores = data.score?.errores ?? data.resumen.critical;
   const warnings = data.score?.warnings ?? data.resumen.warning;
+  const memoriaSections = data.caseData?.memory?.sections ?? [];
+  const memoriaArchivo = resolveMemoriaPrincipalArchivo(data.archivos, data.ejercicio);
+  const showMemoriaViewer = hasResults && memoriaSections.length > 0;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 pb-12">
+    <div className={`mx-auto space-y-8 pb-12 ${showMemoriaViewer ? "max-w-7xl" : "max-w-4xl"}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link href="/" className="text-sm text-slate-500 hover:text-slate-800">
           ← Expedientes
@@ -226,19 +231,46 @@ export function ExpedienteDetailContent() {
       )}
 
       {hasResults ? (
-        <ReviewDashboard
-          cliente={data.cliente}
-          ejercicio={data.ejercicio}
-          tipoEmpresa={data.tipoEmpresa}
-          archivos={data.archivos}
-          validaciones={data.validaciones as ValidacionView[]}
-          score={data.score?.score}
-          estado={data.score?.globalEstado ?? data.score?.estado}
-          motivoGlobal={data.score?.motivoGlobal}
-          errores={errores}
-          warnings={warnings}
-          caseData={data.caseData}
-        />
+        showMemoriaViewer ? (
+          <div className="grid items-start gap-6 lg:grid-cols-2">
+            <MemoriaViewer
+              sections={memoriaSections}
+              ejercicio={data.ejercicio}
+              fileName={memoriaArchivo?.nombre ?? data.caseData?.memory?.metadata?.archivo}
+              paginas={data.caseData?.memory?.metadata?.paginas}
+              downloadUrl={
+                memoriaArchivo
+                  ? `/api/expedientes/${id}/archivos/${memoriaArchivo.id}`
+                  : undefined
+              }
+            />
+            <ReviewDashboard
+              cliente={data.cliente}
+              ejercicio={data.ejercicio}
+              tipoEmpresa={data.tipoEmpresa}
+              archivos={data.archivos}
+              validaciones={data.validaciones as ValidacionView[]}
+              score={data.score?.score}
+              estado={data.score?.globalEstado ?? data.score?.estado}
+              motivoGlobal={data.score?.motivoGlobal}
+              errores={errores}
+              warnings={warnings}
+            />
+          </div>
+        ) : (
+          <ReviewDashboard
+            cliente={data.cliente}
+            ejercicio={data.ejercicio}
+            tipoEmpresa={data.tipoEmpresa}
+            archivos={data.archivos}
+            validaciones={data.validaciones as ValidacionView[]}
+            score={data.score?.score}
+            estado={data.score?.globalEstado ?? data.score?.estado}
+            motivoGlobal={data.score?.motivoGlobal}
+            errores={errores}
+            warnings={warnings}
+          />
+        )
       ) : (
         <div className="space-y-6">
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">

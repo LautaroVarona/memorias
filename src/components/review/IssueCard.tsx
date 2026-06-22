@@ -9,7 +9,7 @@ import { CopyTextButton } from "./CopyTextButton";
 import { InterannualTextDiff } from "./InterannualTextDiff";
 import { formatEvidenceListForCopy } from "./evidence-utils";
 import { SeverityBadge, severityBorderClass } from "./SeverityBadge";
-import { scrollToApartado } from "./scroll-to-apartado";
+import { navigateToMemoriaFromValidation } from "./navigate-from-validation";
 import {
   enrichIssue,
   extractApartadoInfo,
@@ -24,7 +24,13 @@ interface IssueCardProps {
   variant: "critical" | "warning";
 }
 
-function ApartadoLink({ apartado }: { apartado: ApartadoInfo }) {
+function ApartadoLink({
+  apartado,
+  validacion,
+}: {
+  apartado: ApartadoInfo;
+  validacion: ValidacionView;
+}) {
   const short = apartado.title
     ? `Ap. ${apartado.num} · ${apartado.title.length > 36 ? `${apartado.title.slice(0, 35)}…` : apartado.title}`
     : `Ap. ${apartado.num}`;
@@ -32,7 +38,10 @@ function ApartadoLink({ apartado }: { apartado: ApartadoInfo }) {
   return (
     <button
       type="button"
-      onClick={() => scrollToApartado(apartado.num)}
+      onClick={(e) => {
+        e.stopPropagation();
+        navigateToMemoriaFromValidation(validacion);
+      }}
       className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium text-blue-600 transition hover:bg-blue-50 hover:text-blue-700"
       title={`Ir a ${formatApartadoLabel(apartado)}`}
     >
@@ -92,9 +101,20 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
     !isRedundantMeta(issue.what, title) &&
     (issue.keyFact || issue.what.length > 0);
 
+  const canNavigateMemoria = !!apartado;
+
+  function handleCardClick(e: React.MouseEvent<HTMLElement>) {
+    if (!canNavigateMemoria) return;
+    if ((e.target as HTMLElement).closest("button, a, [data-no-navigate]")) return;
+    navigateToMemoriaFromValidation(validacion);
+  }
+
   return (
     <article
-      className={`rounded-md border border-slate-200 border-l-2 bg-white px-3 py-2 ${severityBorderClass(severityLevel)}`}
+      onClick={handleCardClick}
+      className={`rounded-md border border-slate-200 border-l-2 bg-white px-3 py-2 ${severityBorderClass(severityLevel)} ${
+        canNavigateMemoria ? "cursor-pointer transition hover:border-slate-300 hover:shadow-sm" : ""
+      }`}
     >
       <div className="flex items-start gap-2">
         <div className="flex shrink-0 items-center gap-1">
@@ -110,8 +130,12 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
                 Riesgo fiscal
               </span>
             )}
-            {apartado && <ApartadoLink apartado={apartado} />}
+            {apartado && <ApartadoLink apartado={apartado} validacion={validacion} />}
           </div>
+
+          {canNavigateMemoria && (
+            <p className="mt-0.5 text-[10px] text-blue-600/80">Clic para ver en la memoria</p>
+          )}
 
           {hasComparison && (
             <ComparativeValues
