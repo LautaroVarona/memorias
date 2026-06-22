@@ -195,9 +195,9 @@ export interface LibroCierre {
   ejercicio?: number;
   ejercicioAnterior?: number;
   fechaCierre?: string;
-  /** Sumas y saldos (hoja Sys4_digital) */
+  /** Sumas y saldos (hoja SYS_4_3_Digitos) */
   sumasSaldos: CuentaNormalizada[];
-  /** Agregado a 4 dígitos de Sys4_digital */
+  /** Agregado a 4 dígitos de SYS_4_3_Digitos */
   cuentas4: CuentaNormalizada[];
   /** @deprecated Reservado; los libros actuales no incluyen hoja A3SOC */
   a3soc: CuentaNormalizada[];

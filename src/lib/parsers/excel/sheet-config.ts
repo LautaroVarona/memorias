@@ -4,9 +4,8 @@
  * El resto de pestañas del libro se ignoran.
  */
 export const HOJAS_LIBRO_CIERRE = [
-  "Sys4_digital",
-  "SYS_cliente",
   "SYS_4_3_Digitos",
+  "Sys4_digital",
   "balance",
   "pg",
   "inmovilizado",
@@ -22,12 +21,12 @@ export const HOJAS_LIBRO_CIERRE = [
 ] as const;
 
 /** Hojas estructurales: contabilidad, balance y PyG */
-export const HOJA_CONTABILIDAD = "Sys4_digital";
+export const HOJA_CONTABILIDAD = "SYS_4_3_Digitos";
 export const HOJA_BALANCE = "balance";
 export const HOJA_PG = "pg";
 
-/** Alias de contabilidad: SYS_4_3_Digitos es la pestaña activa en plantillas recientes */
-export const ALIASES_CONTABILIDAD = ["SYS_4_3_Digitos", "SYS_cliente", "Sys4_digital"] as const;
+/** Alias de contabilidad: SYS_4_3_Digitos es la única fuente operativa (SYS_cliente no se usa) */
+export const ALIASES_CONTABILIDAD = ["SYS_4_3_Digitos", "Sys4_digital"] as const;
 export const ALIASES_BALANCE = ["balance", "BCE ABREVIADO"] as const;
 export const ALIASES_PG = ["pg"] as const;
 
@@ -50,7 +49,7 @@ export function sheetsToLoad(sheetNames: string[]): string[] {
   return sheetNames.filter(isAllowedCierreSheet);
 }
 
-/** Resuelve la hoja de contabilidad (SYS_4_3_Digitos, SYS_cliente o Sys4_digital). */
+/** Resuelve la hoja de contabilidad (SYS_4_3_Digitos o Sys4_digital legacy). */
 export function resolveContabilidadSheet(sheetNames: string[]): string | undefined {
   return resolveSheet(sheetNames, ...ALIASES_CONTABILIDAD);
 }

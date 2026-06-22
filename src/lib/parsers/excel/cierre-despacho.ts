@@ -86,7 +86,61 @@ function cellToFecha(val: unknown): string | undefined {
   return `${String(dia).padStart(2, "0")}/${String(mes).padStart(2, "0")}/${anio}`;
 }
 
-// ── Sys4_digital (contabilidad) ─────────────────────────────────────────────
+// ── SYS_4_3_Digitos / contabilidad ───────────────────────────────────────────
+
+interface ColumnasDebeHaber {
+  colDebe: number;
+  colHaber: number;
+  seccion: string;
+}
+
+/** Localiza el par debe/haber del ejercicio en curso (saldos ajustados o balance final). */
+function resolverColumnasDebeHaber(header: string[], labelRow: unknown[] | undefined): ColumnasDebeHaber {
+  const debeCols = header
+    .map((h, i) => ({ i, h: h.toLowerCase().trim() }))
+    .filter(({ h }) => h === "debe")
+    .map(({ i }) => i);
+
+  if (debeCols.length <= 1) {
+    const colDebe = debeCols[0] ?? header.findIndex((h) => h.toLowerCase().trim() === "debe");
+    const colHaber =
+      colDebe >= 0
+        ? header.findIndex((h, idx) => idx > colDebe && h.toLowerCase().trim() === "haber")
+        : header.findIndex((h) => h.toLowerCase().trim() === "haber");
+    return { colDebe, colHaber, seccion: "simple" };
+  }
+
+  const labels = (labelRow ?? []).map((c) => asText(c).toLowerCase());
+  const pairs = debeCols.map((colDebe) => {
+    const colHaber = header.findIndex(
+      (h, idx) => idx > colDebe && h.toLowerCase().trim() === "haber"
+    );
+    let seccion = "";
+    for (let c = colDebe; c >= 0; c--) {
+      const t = labels[c]?.trim();
+      if (t && t.length > 2) {
+        seccion = t;
+        break;
+      }
+    }
+    return { colDebe, colHaber, seccion };
+  });
+
+  const preferidos = [/saldos?\s*ajustados/i, /balance\s*final/i];
+  for (const patron of preferidos) {
+    const found = pairs.find((p) => patron.test(p.seccion));
+    if (found && found.colHaber >= 0) {
+      return { colDebe: found.colDebe, colHaber: found.colHaber, seccion: found.seccion };
+    }
+  }
+
+  const last = pairs[pairs.length - 1];
+  return {
+    colDebe: last.colDebe,
+    colHaber: last.colHaber >= 0 ? last.colHaber : last.colDebe + 1,
+    seccion: last.seccion || "ultimo_bloque",
+  };
+}
 
 function parseContabilidad(
   rows: unknown[][],
@@ -95,7 +149,7 @@ function parseContabilidad(
   const detalle: CuentaNormalizada[] = [];
 
   let headerRow = -1;
-  for (let r = 0; r < Math.min(rows.length, 15); r++) {
+  for (let r = 0; r < Math.min(rows.length, 20); r++) {
     const row = rows[r] ?? [];
     const texts = row.map(asText).map((t) => t.toLowerCase());
     if (texts.includes("cuenta") && texts.includes("debe") && texts.includes("haber")) {
@@ -106,25 +160,37 @@ function parseContabilidad(
   if (headerRow === -1) return { detalle: [], cuentas4: [] };
 
   const header = (rows[headerRow] ?? []).map(asText).map((t) => t.toLowerCase());
+  const labelRow = headerRow > 0 ? rows[headerRow - 1] : undefined;
+  const { colDebe, colHaber } = resolverColumnasDebeHaber(header, labelRow);
+
   const colCuenta = header.indexOf("cuenta");
   const colTitulo = header.findIndex((t) => t === "título" || t === "titulo");
-  const colDebe = header.indexOf("debe");
-  const colHaber = header.indexOf("haber");
+  const colCuenta4 = header.findIndex((t) => /cuenta\s*4\s*d[ií]gitos|^4\s*d[ií]gitos$/.test(t));
+  const colSaldoCuenta = header.findIndex((t) => /^saldo\s+cuenta$|^saldo\s+final$/.test(t));
+
+  if (colCuenta < 0 || colDebe < 0 || colHaber < 0) return { detalle: [], cuentas4: [] };
 
   for (let r = headerRow + 1; r < rows.length; r++) {
     const row = rows[r] ?? [];
     const cuentaRaw = asText(row[colCuenta]);
     if (!/^\d{3,10}$/.test(cuentaRaw)) continue;
+
     const debe = asNumber(row[colDebe]) ?? 0;
     const haber = asNumber(row[colHaber]) ?? 0;
-    if (debe === 0 && haber === 0) continue;
+    const saldoExplicito =
+      colSaldoCuenta >= 0 ? asNumber(row[colSaldoCuenta]) : null;
+    const saldo =
+      saldoExplicito !== null ? saldoExplicito : debe - haber;
+
+    if (debe === 0 && haber === 0 && saldo === 0) continue;
+
     detalle.push(
       normalizarCuenta(
         cuentaRaw,
         asText(row[colTitulo >= 0 ? colTitulo : colCuenta + 1]),
         debe,
         haber,
-        debe - haber,
+        saldo,
         r + 1,
         hojaLabel,
         colHaber >= 0 ? colHaber : colDebe
@@ -132,20 +198,52 @@ function parseContabilidad(
     );
   }
 
-  const agregado = new Map<string, { descripcion: string; debe: number; haber: number; fila: number }>();
-  for (const c of detalle) {
-    const clave = c.cuenta.substring(0, 4);
-    const existente = agregado.get(clave);
-    if (existente) {
-      existente.debe += c.debe;
-      existente.haber += c.haber;
-    } else {
-      agregado.set(clave, { descripcion: c.descripcion, debe: c.debe, haber: c.haber, fila: c.fila ?? 0 });
+  const agregado = new Map<
+    string,
+    { descripcion: string; debe: number; haber: number; saldo: number; fila: number }
+  >();
+
+  if (colCuenta4 >= 0 && colSaldoCuenta >= 0) {
+    for (let r = headerRow + 1; r < rows.length; r++) {
+      const row = rows[r] ?? [];
+      const cuenta4Raw = asText(row[colCuenta4]);
+      if (!/^\d{4}$/.test(cuenta4Raw)) continue;
+      const saldo = asNumber(row[colSaldoCuenta]);
+      if (saldo === null || saldo === 0) continue;
+      const titulo = asText(row[colTitulo >= 0 ? colTitulo : colCuenta + 1]);
+      const debe = asNumber(row[colDebe]) ?? 0;
+      const haber = asNumber(row[colHaber]) ?? 0;
+      const existente = agregado.get(cuenta4Raw);
+      if (existente) {
+        existente.debe += debe;
+        existente.haber += haber;
+        existente.saldo += saldo;
+      } else {
+        agregado.set(cuenta4Raw, { descripcion: titulo, debe, haber, saldo, fila: r + 1 });
+      }
+    }
+  } else {
+    for (const c of detalle) {
+      const clave = c.cuenta.substring(0, 4);
+      const existente = agregado.get(clave);
+      if (existente) {
+        existente.debe += c.debe;
+        existente.haber += c.haber;
+        existente.saldo += c.saldo;
+      } else {
+        agregado.set(clave, {
+          descripcion: c.descripcion,
+          debe: c.debe,
+          haber: c.haber,
+          saldo: c.saldo,
+          fila: c.fila ?? 0,
+        });
+      }
     }
   }
 
   const cuentas4 = [...agregado.entries()].map(([cuenta, v]) =>
-    normalizarCuenta(cuenta, v.descripcion, v.debe, v.haber, v.debe - v.haber, v.fila, hojaLabel)
+    normalizarCuenta(cuenta, v.descripcion, v.debe, v.haber, v.saldo, v.fila, hojaLabel)
   );
 
   return { detalle, cuentas4 };
@@ -166,19 +264,23 @@ interface LayoutComparativo {
 function detectarLayout(rows: unknown[][], colEtiqueta: number): LayoutComparativo | null {
   for (let r = 0; r < Math.min(rows.length, 30); r++) {
     const row = rows[r] ?? [];
-    const fechas: number[] = [];
+    const columnasFecha: { col: number; anio: number }[] = [];
     for (let c = colEtiqueta + 1; c < colEtiqueta + 10; c++) {
-      if (cellToYear(row[c]) !== undefined) fechas.push(c);
+      const anio = cellToYear(row[c]);
+      if (anio !== undefined) columnasFecha.push({ col: c, anio });
     }
-    if (fechas.length >= 2) {
+    if (columnasFecha.length >= 2) {
+      columnasFecha.sort((a, b) => b.anio - a.anio);
+      const colActual = columnasFecha[0].col;
+      const colAnterior = columnasFecha[1].col;
       return {
         colEtiqueta,
-        colActual: fechas[0],
-        colAnterior: fechas[1],
+        colActual,
+        colAnterior,
         filaInicio: r + 1,
-        ejercicioActual: cellToYear(row[fechas[0]]),
-        ejercicioAnterior: cellToYear(row[fechas[1]]),
-        fechaCierre: cellToFecha(row[fechas[0]]),
+        ejercicioActual: columnasFecha[0].anio,
+        ejercicioAnterior: columnasFecha[1].anio,
+        fechaCierre: cellToFecha(row[colActual]),
       };
     }
   }
@@ -481,7 +583,7 @@ export function parseLibroCierre(workbook: XLSX.WorkBook, archivo: string): Libr
 
   if (!contabilidadSheet || !balanceSheet) {
     throw new Error(
-      "El libro de cierre debe incluir hoja de contabilidad (SYS_4_3_Digitos, SYS_cliente o Sys4_digital) y balance."
+      "El libro de cierre debe incluir hoja de contabilidad (SYS_4_3_Digitos) y balance."
     );
   }
 

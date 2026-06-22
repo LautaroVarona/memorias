@@ -136,7 +136,7 @@ export const crossRules: RuleDefinition[] = [
         rowLabel: memoryContext?.rowLabel,
       };
       const contabilidadSheet =
-        groupAccounts.find((c) => c.hoja)?.hoja ?? excelDoc ?? "SYS_cliente";
+        groupAccounts.find((c) => c.hoja)?.hoja ?? excelDoc ?? "SYS_4_3_Digitos";
 
       const ev = [
         withEuro("excel", "Total vinculadas Excel", totals.excel.total, "high", undefined, {
@@ -171,7 +171,7 @@ export const crossRules: RuleDefinition[] = [
             `Cta ${line.cuenta} — ${line.descripcion}`,
             line.saldo,
             {
-              sheet: line.hoja ?? "SYS_cliente",
+              sheet: line.hoja ?? "SYS_4_3_Digitos",
               row: line.fila ?? 0,
               column: line.columna,
               documentName: excelDoc,

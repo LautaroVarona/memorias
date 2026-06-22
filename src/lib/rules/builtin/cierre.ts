@@ -13,7 +13,7 @@ import { withinTolerance } from "../types";
 
 /**
  * Reglas específicas del flujo real del despacho: libro de cierre .xlsm
- * (SYS_cliente, A3SOC, BALANCE, PG, PENDIENTES, INCIDENCIAS) cruzado con
+ * (SYS_4_3_Digitos, A3SOC, BALANCE, PG, PENDIENTES, INCIDENCIAS) cruzado con
  * la memoria .DOC generada por A3SOC.
  */
 
@@ -45,7 +45,7 @@ function saldoCierre(
   if (enA3.length > 0) {
     return { valor: enA3.reduce((s, c) => s + c.saldo, 0), fuente: "A3SOC" };
   }
-  return { valor: saldoPorPrefijos(libro.cuentas4, prefijos), fuente: "SYS_cliente" };
+  return { valor: saldoPorPrefijos(libro.cuentas4, prefijos), fuente: "SYS_4_3_Digitos" };
 }
 
 /** La memoria y el libro deben referirse al mismo ejercicio para cruzar saldos */
@@ -144,7 +144,7 @@ export const cierreRules: RuleDefinition[] = [
     type: "balance",
     defaultSeverity: "critical",
     normativa: "PGC — partida doble",
-    referencia: "Hoja SYS_cliente del libro de cierre",
+    referencia: "Hoja SYS_4_3_Digitos del libro de cierre",
     execute(data) {
       const libro = data.financials.libroCierre;
       if (!libro || libro.sumasSaldos.length === 0) return { passed: true, data: { skip: true } };
@@ -174,8 +174,8 @@ export const cierreRules: RuleDefinition[] = [
       if (outcome.passed) return [];
       const { totalDebe, totalHaber } = outcome.data as Record<string, number>;
       return [
-        withEuro("excel", "SYS_cliente — total debe", totalDebe, "high"),
-        withEuro("excel", "SYS_cliente — total haber", totalHaber, "high"),
+        withEuro("excel", "SYS_4_3_Digitos — total debe", totalDebe, "high"),
+        withEuro("excel", "SYS_4_3_Digitos — total haber", totalHaber, "high"),
       ];
     },
   },
@@ -233,7 +233,7 @@ export const cierreRules: RuleDefinition[] = [
     type: "cross",
     defaultSeverity: "warning",
     normativa: "Control interno del despacho",
-    referencia: "SYS_cliente vs A3SOC (saldos a 3 dígitos)",
+    referencia: "SYS_4_3_Digitos vs A3SOC (saldos a 3 dígitos)",
     execute(data) {
       const libro = data.financials.libroCierre;
       if (!libro || libro.a3soc.length === 0 || libro.cuentas4.length === 0) {
@@ -273,12 +273,12 @@ export const cierreRules: RuleDefinition[] = [
     },
     explanation(outcome) {
       if (outcome.passed) {
-        if (outcome.data.skip) return seniorExplanationPass("No hay datos de A3SOC y SYS_cliente que conciliar.");
-        return seniorExplanationPass("La contabilidad del cliente coincide con A3SOC a nivel de 3 dígitos.");
+        if (outcome.data.skip) return seniorExplanationPass("No hay datos de A3SOC y SYS_4_3_Digitos que conciliar.");
+        return seniorExplanationPass("La contabilidad a 3 dígitos coincide con A3SOC.");
       }
       const { total } = outcome.data as { total: number };
       return seniorExplanation(
-        `Hay ${total} cuenta(s) a 3 dígitos con saldo distinto entre la contabilidad del cliente (SYS) y A3SOC.`,
+        `Hay ${total} cuenta(s) a 3 dígitos con saldo distinto entre SYS_4_3_Digitos y A3SOC.`,
         `Las diferencias indican asientos pendientes de traspasar o ajustes de cierre aplicados solo en uno de los dos sistemas.`,
         `Concilie las cuentas señaladas antes de dar por bueno el cierre.`
       );
@@ -288,7 +288,7 @@ export const cierreRules: RuleDefinition[] = [
       return ((outcome.data.discrepancias as { cuenta: string; sys: number; a3soc: number }[]) ?? [])
         .slice(0, 5)
         .flatMap((d) => [
-          withEuro("excel", `Cuenta ${d.cuenta} — SYS_cliente`, d.sys, "high"),
+          withEuro("excel", `Cuenta ${d.cuenta} — SYS_4_3_Digitos`, d.sys, "high"),
           withEuro("excel", `Cuenta ${d.cuenta} — A3SOC`, d.a3soc, "high"),
         ]);
     },
@@ -299,7 +299,7 @@ export const cierreRules: RuleDefinition[] = [
     type: "cross",
     defaultSeverity: "critical",
     normativa: "PGC — memoria, operaciones con partes vinculadas",
-    referencia: "Apartado 09 de la memoria vs SYS_cliente",
+    referencia: "Apartado 09 de la memoria vs SYS_4_3_Digitos",
     execute(data) {
       if (!ejerciciosAlineados(data)) return { passed: true, data: { skip: true } };
       const cruces = cruzarVinculadas(data);
