@@ -1,6 +1,4 @@
-import reglasFiscales from "../../../../data/pgc/reglas-fiscales.json";
 import { clasificarEmpresa } from "@/lib/classifier";
-import { formatEuro } from "@/lib/rules/helpers/accounts";
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
 import { withEuro, withMemoryLocator, withText } from "@/lib/rules/helpers/evidence";
 import {
@@ -17,17 +15,10 @@ import {
 import type { TipoEmpresa } from "@/types/domain";
 import type { RuleDefinition } from "../types";
 
-const UMBRAL = reglasFiscales.variacionInteranualUmbral as number;
-
 const KEY_SECTIONS = [
   { id: "vinculadas", keywords: ["operaciones vinculadas", "partes vinculadas"] },
   { id: "fiscal", keywords: ["situación fiscal", "impuesto sobre sociedades", "conciliación fiscal"] },
 ];
-
-function variacionPct(actual: number, anterior: number): number {
-  if (anterior === 0) return actual === 0 ? 0 : 1;
-  return Math.abs((actual - anterior) / anterior);
-}
 
 function formatOmitidosLista(omitidos: ApartadoOmitido[]): string {
   return omitidos
@@ -51,77 +42,6 @@ function sectionPresent(text: string, keywords: string[]): boolean {
 }
 
 export const interannualRules: RuleDefinition[] = [
-  {
-    id: "INTER_001",
-    title: "Variación significativa interanual",
-    type: "interannual",
-    defaultSeverity: "warning",
-    normativa: "PGC",
-    referencia: "Análisis interanual",
-    execute(data) {
-      const balance = data.financials.balance;
-      const antBalance = data.priorYear?.financials.balance;
-      if (!balance || !antBalance) {
-        return { passed: true, data: { skip: true } };
-      }
-
-      const varActivo = variacionPct(balance.activo.total, antBalance.activo.total);
-      const varResultado = variacionPct(balance.resultado, antBalance.resultado);
-      const triggered = varActivo > UMBRAL || varResultado > UMBRAL;
-
-      return {
-        passed: !triggered,
-        severity: "warning",
-        sugerencia: "Documente en la memoria las causas de la variación significativa.",
-        data: {
-          varActivo,
-          varResultado,
-          activoActual: balance.activo.total,
-          activoAnterior: antBalance.activo.total,
-          resultadoActual: balance.resultado,
-          resultadoAnterior: antBalance.resultado,
-          ejercicioAnterior: data.priorYear!.ejercicio,
-          ejercicio: data.metadata.ejercicio,
-        },
-      };
-    },
-    explanation(outcome) {
-      if (outcome.passed) {
-        return seniorExplanationPass("Las variaciones interanuales están dentro del umbral del 30%.");
-      }
-      const ctx = outcome.data as {
-        varActivo: number;
-        varResultado: number;
-        activoActual: number;
-        activoAnterior: number;
-        resultadoActual: number;
-        resultadoAnterior: number;
-        ejercicioAnterior: number;
-      };
-      return seniorExplanation(
-        `Variación significativa entre ejercicios: activo ${(ctx.varActivo * 100).toFixed(1)}% (${formatEuro(ctx.activoAnterior)} → ${formatEuro(ctx.activoActual)}) y resultado ${(ctx.varResultado * 100).toFixed(1)}% (${formatEuro(ctx.resultadoAnterior)} → ${formatEuro(ctx.resultadoActual)}).`,
-        `Cambios de esta magnitud suelen requerir explicación en la memoria para que el cierre sea comprensible.`,
-        `Documente en la memoria las causas (adquisiciones, desinversiones, cambio de actividad, etc.).`
-      );
-    },
-    evidence(outcome) {
-      if (outcome.passed) return [];
-      const ctx = outcome.data as {
-        activoActual: number;
-        activoAnterior: number;
-        resultadoActual: number;
-        resultadoAnterior: number;
-        ejercicioAnterior: number;
-        ejercicio: number;
-      };
-      return [
-        withEuro("excel", `Activo ${ctx.ejercicioAnterior}`, ctx.activoAnterior, "high"),
-        withEuro("excel", `Activo ${ctx.ejercicio}`, ctx.activoActual, "high"),
-        withEuro("excel", `Resultado ${ctx.ejercicioAnterior}`, ctx.resultadoAnterior, "medium"),
-        withEuro("excel", `Resultado ${ctx.ejercicio}`, ctx.resultadoActual, "medium"),
-      ];
-    },
-  },
   {
     id: "INTER_002",
     title: "Cambio de tipo de empresa",

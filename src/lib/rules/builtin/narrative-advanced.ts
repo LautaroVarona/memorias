@@ -12,11 +12,6 @@ const GENERIC_PATTERNS: { pattern: RegExp; tipo: string; contradictWhen: (ctx: G
     contradictWhen: (ctx) => ctx.activo > 500_000 || ctx.vinculadas,
   },
   {
-    pattern: /sin\s+cambios|no\s+hay\s+cambios|sin\s+modificaciones\s+relevantes/i,
-    tipo: "cambios",
-    contradictWhen: (ctx) => ctx.variacionActivo > 0.2 || ctx.variacionResultado > 0.3,
-  },
-  {
     pattern: /sin\s+deuda|no\s+mantiene\s+deuda|libre\s+de\s+deuda|sin\s+endeudamiento/i,
     tipo: "deuda",
     contradictWhen: (ctx) => ctx.deuda > 50_000,
@@ -32,26 +27,18 @@ interface GenericContext {
   activo: number;
   deuda: number;
   vinculadas: boolean;
-  variacionActivo: number;
-  variacionResultado: number;
 }
 
 function buildGenericContext(data: import("@/types/case-data").CaseData): GenericContext {
   const accounts = getAccounts(data);
   const balance = data.financials.balance;
-  const antBalance = data.priorYear?.financials.balance;
 
   const activo = balance?.activo.total ?? 0;
-  const antActivo = antBalance?.activo.total ?? activo;
-  const resultado = balance?.resultado ?? 0;
-  const antResultado = antBalance?.resultado ?? resultado;
 
   return {
     activo,
     deuda: Math.abs(sumByPrefix(accounts, ["170", "171", "172", "520", "521"])),
     vinculadas: hasElevatedVinculadas(data),
-    variacionActivo: antActivo > 0 ? Math.abs((activo - antActivo) / antActivo) : 0,
-    variacionResultado: antResultado !== 0 ? Math.abs((resultado - antResultado) / antResultado) : 0,
   };
 }
 

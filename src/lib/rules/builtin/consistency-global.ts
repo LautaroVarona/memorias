@@ -1,30 +1,26 @@
-import { formatEuro } from "@/lib/rules/helpers/accounts";
 import {
   countPendientes,
-  hasElevatedResultado,
   hasElevatedVinculadas,
   hasSysA3Differences,
   hasVinculadasExplanation,
 } from "@/lib/rules/helpers/closure-signals";
 import { seniorExplanationPass, seniorIssue } from "@/lib/rules/helpers/explanation";
-import { withEuro, withText } from "@/lib/rules/helpers/evidence";
+import { withText } from "@/lib/rules/helpers/evidence";
 import type { RuleDefinition } from "../types";
 
 export const consistencyGlobalRules: RuleDefinition[] = [
   {
     id: "CONSISTENCIA_GLOBAL_001",
-    title: "Coherencia global: vinculadas y resultado sin explicación",
+    title: "Coherencia global: vinculadas sin explicación",
     type: "cross",
     defaultSeverity: "warning",
     normativa: "PGC — principio de imagen fiel",
     referencia: "Análisis conjunto memoria + contabilidad",
     execute(data) {
       const vinculadasAltas = hasElevatedVinculadas(data);
-      const resultadoAlto = hasElevatedResultado(data);
       const sinExplicacion = !hasVinculadasExplanation(data);
-      const resultado = data.financials.balance?.resultado ?? 0;
 
-      const triggered = (vinculadasAltas || resultadoAlto) && sinExplicacion;
+      const triggered = vinculadasAltas && sinExplicacion;
 
       return {
         passed: !triggered,
@@ -32,26 +28,22 @@ export const consistencyGlobalRules: RuleDefinition[] = [
         warningLevel: "high",
         tags: ["cross-document"],
         diagnosis: triggered
-          ? "Operaciones relevantes sin narrativa suficiente en la memoria"
+          ? "Operaciones con partes vinculadas sin narrativa suficiente en la memoria"
           : undefined,
-        sugerencia: "Amplíe la memoria con explicación de vinculadas y/o variación del resultado.",
-        data: { vinculadasAltas, resultadoAlto, sinExplicacion, resultado },
+        sugerencia: "Amplíe la memoria con explicación de las operaciones con partes vinculadas.",
+        data: { vinculadasAltas, sinExplicacion },
       };
     },
     explanation(outcome) {
       if (outcome.passed) {
-        return seniorExplanationPass("Las operaciones relevantes están acompañadas de explicación en la memoria.");
+        return seniorExplanationPass("Las operaciones con partes vinculadas están explicadas en la memoria.");
       }
-      const d = outcome.data;
-      const partes: string[] = [];
-      if (d.vinculadasAltas) partes.push("saldos elevados con partes vinculadas");
-      if (d.resultadoAlto) partes.push(`resultado significativo (${formatEuro(d.resultado as number)})`);
 
       const issue = seniorIssue(
-        `El expediente presenta ${partes.join(" y ")}, pero la memoria no desarrolla una explicación suficiente.`,
+        `El expediente presenta saldos elevados con partes vinculadas, pero la memoria no desarrolla una explicación suficiente.`,
         `Un cierre con operaciones relevantes sin narrativa debilita la defensa ante revisión y puede interpretarse como omisión informativa.`,
-        `Incorpore en la memoria el detalle de vinculadas y las causas del resultado del ejercicio.`,
-        "Combinación de magnitud contable y ausencia de explicación narrativa"
+        `Incorpore en la memoria el detalle de las operaciones con partes vinculadas.`,
+        "Magnitud de vinculadas sin explicación narrativa"
       );
       return issue.explanation;
     },
@@ -60,9 +52,6 @@ export const consistencyGlobalRules: RuleDefinition[] = [
       const ev = [];
       if (outcome.data.vinculadasAltas) {
         ev.push(withText("excel", "Vinculadas", "Saldos elevados detectados", "high"));
-      }
-      if (outcome.data.resultadoAlto) {
-        ev.push(withEuro("excel", "Resultado del ejercicio", outcome.data.resultado as number, "high"));
       }
       ev.push(withText("memory", "Explicación en memoria", "Insuficiente o ausente", "high"));
       return ev;
