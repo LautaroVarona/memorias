@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ApartadoReviewGroup } from "./group-by-apartado";
 import { formatApartadoHeading } from "./group-by-apartado";
 import type { ValidacionView } from "./types";

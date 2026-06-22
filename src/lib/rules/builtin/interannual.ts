@@ -2,6 +2,17 @@ import reglasFiscales from "../../../../data/pgc/reglas-fiscales.json";
 import { clasificarEmpresa } from "@/lib/classifier";
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
 import { withEuro, withMemoryLocator, withText } from "@/lib/rules/helpers/evidence";
+import {
+  detectarTablasDegradadasInteranual,
+  tituloTablaLegible,
+  type TablaDegradadaInteranual,
+} from "@/lib/rules/helpers/tablas-interanual";
+import {
+  detectarApartadosOmitidos,
+  detectarVariacionesTextoApartados,
+  type ApartadoOmitido,
+  type ApartadoVariacionTexto,
+} from "@/lib/rules/helpers/text-normalize";
 import type { TipoEmpresa } from "@/types/domain";
 import type { RuleDefinition } from "../types";
 
@@ -321,7 +332,7 @@ export const interannualRules: RuleDefinition[] = [
         );
       }
 
-      const { omitidos, ejercicioAnterior, ejercicio } = outcome.data as {
+      const { omitidos, ejercicioAnterior } = outcome.data as {
         omitidos: ApartadoOmitido[];
         ejercicioAnterior: number;
         ejercicio: number;
