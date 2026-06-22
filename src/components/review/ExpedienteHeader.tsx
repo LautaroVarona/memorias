@@ -40,66 +40,51 @@ export function ExpedienteHeader({
   const estadoLabel = ESTADO_LABELS[estadoKey] ?? estadoKey.toUpperCase();
 
   return (
-    <header className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-6">
+    <header className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">{cliente}</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <h1 className="text-lg font-bold tracking-tight text-slate-900">{cliente}</h1>
+          <p className="mt-0.5 text-xs text-slate-500">
             Ejercicio {ejercicioLabel}
             {tipoEmpresa && (
-              <span className="ml-2 capitalize text-slate-400">· {tipoEmpresa}</span>
+              <span className="ml-1.5 capitalize text-slate-400">· {tipoEmpresa}</span>
             )}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="text-right">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Estado del cierre
-            </p>
-            <span
-              className={`mt-1 inline-block rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ring-1 ${ESTADO_STYLES[estadoKey]}`}
-            >
-              {estadoLabel}
-            </span>
-            {motivoGlobal && estadoKey !== "ok" && (
-              <p className="mt-1 max-w-xs text-xs text-slate-500">{motivoGlobal}</p>
-            )}
-          </div>
-
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ring-1 ${ESTADO_STYLES[estadoKey]}`}
+          >
+            {estadoLabel}
+          </span>
           {score !== undefined && (
-            <div className="text-right">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Score</p>
-              <p
-                className={`text-3xl font-bold tabular-nums ${
-                  estadoKey === "no_formulable"
-                    ? "text-red-600"
-                    : estadoKey === "revisar"
-                      ? "text-amber-600"
-                      : "text-slate-900"
-                }`}
-              >
-                {score}
-              </p>
-            </div>
+            <span
+              className={`text-lg font-bold tabular-nums ${
+                estadoKey === "no_formulable"
+                  ? "text-red-600"
+                  : estadoKey === "revisar"
+                    ? "text-amber-600"
+                    : "text-slate-800"
+              }`}
+              title="Score"
+            >
+              {score}
+            </span>
           )}
-
-          <div className="hidden h-10 w-px bg-slate-200 sm:block" />
-
-          <div className="flex gap-6 text-sm">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Errores</p>
-              <p className="text-xl font-bold tabular-nums text-red-600">{errores}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                Warnings
-              </p>
-              <p className="text-xl font-bold tabular-nums text-amber-600">{warnings}</p>
-            </div>
-          </div>
+          <span className="text-red-600 tabular-nums">
+            <span className="text-[10px] font-medium uppercase text-slate-400">Err </span>
+            {errores}
+          </span>
+          <span className="text-amber-600 tabular-nums">
+            <span className="text-[10px] font-medium uppercase text-slate-400">Adv </span>
+            {warnings}
+          </span>
         </div>
       </div>
+      {motivoGlobal && estadoKey !== "ok" && (
+        <p className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-600">{motivoGlobal}</p>
+      )}
     </header>
   );
 }

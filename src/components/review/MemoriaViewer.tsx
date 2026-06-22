@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApartadoMemoria } from "@/types/domain";
+import { openArchivoOriginal } from "@/lib/expediente-client";
 import { HighlightText } from "./HighlightText";
 import { subscribeMemoriaNavigate, type MemoriaNavigateTarget } from "./memoria-navigator";
 
@@ -9,7 +10,8 @@ interface MemoriaViewerProps {
   sections: ApartadoMemoria[];
   ejercicio?: number;
   fileName?: string;
-  downloadUrl?: string;
+  /** ID del archivo en IndexedDB para abrir el Word original */
+  archivoId?: string;
   paginas?: number;
 }
 
@@ -63,12 +65,14 @@ export function MemoriaViewer({
   sections,
   ejercicio,
   fileName,
-  downloadUrl,
+  archivoId,
   paginas,
 }: MemoriaViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeApartado, setActiveApartado] = useState<string | undefined>();
   const [highlightText, setHighlightText] = useState<string | undefined>();
+  const [openingFile, setOpeningFile] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   const handleNavigate = useCallback((target: MemoriaNavigateTarget) => {
     if (target.apartado) {
@@ -82,6 +86,19 @@ export function MemoriaViewer({
 
   useEffect(() => subscribeMemoriaNavigate(handleNavigate), [handleNavigate]);
 
+  async function handleOpenOriginal() {
+    if (!archivoId || !fileName) return;
+    setOpeningFile(true);
+    setFileError(null);
+    try {
+      await openArchivoOriginal(archivoId, fileName);
+    } catch (err) {
+      setFileError(err instanceof Error ? err.message : "No se pudo abrir el archivo");
+    } finally {
+      setOpeningFile(false);
+    }
+  }
+
   if (sections.length === 0) return null;
 
   return (
@@ -89,42 +106,45 @@ export function MemoriaViewer({
       id="memoria-viewer-panel"
       className="flex max-h-[calc(100vh-5rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
     >
-      <header className="shrink-0 border-b border-slate-100 px-4 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
+      <header className="shrink-0 border-b border-slate-100 px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-slate-900">
               Memoria{ejercicio ? ` ${ejercicio}` : ""}
+              {paginas ? (
+                <span className="ml-1.5 font-normal text-slate-400">
+                  · {sections.length} ap. · {paginas} pág.
+                </span>
+              ) : (
+                <span className="ml-1.5 font-normal text-slate-400">· {sections.length} ap.</span>
+              )}
             </h2>
-            <p className="mt-0.5 text-[11px] text-slate-500">
-              Vista del texto extraído del Word · {sections.length} apartados
-              {paginas ? ` · ${paginas} páginas` : ""}
-            </p>
             {fileName && (
-              <p className="mt-1 truncate text-[11px] text-slate-400" title={fileName}>
+              <p className="truncate text-[10px] text-slate-400" title={fileName}>
                 {fileName}
               </p>
             )}
           </div>
-          {downloadUrl && (
-            <a
-              href={downloadUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+          {archivoId && fileName && (
+            <button
+              type="button"
+              onClick={() => void handleOpenOriginal()}
+              disabled={openingFile}
+              className="shrink-0 rounded-md border border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
             >
-              Abrir Word original
-            </a>
+              {openingFile ? "Abriendo…" : "Word original"}
+            </button>
           )}
         </div>
-        <p className="mt-2 text-[10px] text-blue-700">
-          Haz clic en un error o en «Ap. XX» para saltar al apartado correspondiente.
-        </p>
+        {fileError && (
+          <p className="mt-1 text-[10px] text-red-600">{fileError}</p>
+        )}
       </header>
 
       <div
         ref={scrollRef}
         id="memoria-apartados"
-        className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
       >
         <div className="space-y-4">
           {sections.map((sec) => {

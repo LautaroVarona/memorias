@@ -1,14 +1,7 @@
 import reglasFiscales from "../../../../data/pgc/reglas-fiscales.json";
 import { clasificarEmpresa } from "@/lib/classifier";
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
-import { withEuro, withText } from "@/lib/rules/helpers/evidence";
-import { formatEuro } from "@/lib/rules/helpers/accounts";
-import {
-  detectarApartadosOmitidos,
-  detectarVariacionesTextoApartados,
-  type ApartadoOmitido,
-  type ApartadoVariacionTexto,
-} from "@/lib/rules/helpers/text-normalize";
+import { withEuro, withMemoryLocator, withText } from "@/lib/rules/helpers/evidence";
 import type { TipoEmpresa } from "@/types/domain";
 import type { RuleDefinition } from "../types";
 
@@ -373,7 +366,7 @@ export const interannualRules: RuleDefinition[] = [
   },
   {
     id: "INTER_007",
-    title: "Integridad de texto entre apartados",
+    title: "Pérdida de contenido narrativo (no cambios de cifra o año)",
     type: "interannual",
     defaultSeverity: "warning",
     normativa: "PGC",
@@ -391,7 +384,7 @@ export const interannualRules: RuleDefinition[] = [
       const ejercicioAnterior = data.priorYear.ejercicio;
       const ejercicio = data.metadata.ejercicio;
       const action =
-        "Revise si el cambio es correcto o si falta información obligatoria que sí estaba en el ejercicio anterior.";
+        "Revise si falta texto obligatorio respecto al ejercicio anterior; los cambios solo de cifras o fechas son normales.";
 
       if (variados.length === 0) {
         return {
@@ -507,6 +500,81 @@ export const interannualRules: RuleDefinition[] = [
           group: v.slug,
         };
       });
+    },
+  },
+  {
+    id: "INTER_009",
+    title: "Tabla incompleta respecto al ejercicio anterior",
+    type: "interannual",
+    defaultSeverity: "error",
+    normativa: "PGC",
+    referencia: "Análisis interanual — tablas con celdas vacías",
+    execute(data) {
+      if (!data.memory || !data.priorYear?.memory) {
+        return { passed: true, data: { skip: true } };
+      }
+
+      const tablasActual = data.memory.tables ?? [];
+      const tablasAnterior = data.priorYear.memory.tables ?? [];
+      const degradadas = detectarTablasDegradadasInteranual(tablasActual, tablasAnterior);
+
+      const ejercicioAnterior = data.priorYear.ejercicio;
+      const ejercicio = data.metadata.ejercicio;
+
+      if (degradadas.length === 0) {
+        return { passed: true, data: { ejercicioAnterior, ejercicio } };
+      }
+
+      return {
+        passed: false,
+        severity: "error",
+        sugerencia:
+          "Complete las tablas que tenían datos el año anterior o elimine la fila/cuadro si ya no aplica.",
+        data: { degradadas, ejercicioAnterior, ejercicio, docName: data.memory.metadata.archivo },
+      };
+    },
+    explanation(outcome) {
+      if (outcome.passed) {
+        if (outcome.data.skip) {
+          return seniorExplanationPass("No hay dos memorias para comparar tablas entre ejercicios.");
+        }
+        return seniorExplanationPass(
+          "Las tablas comparables mantienen el mismo nivel de detalle que el ejercicio anterior."
+        );
+      }
+      const { degradadas, ejercicioAnterior, ejercicio } = outcome.data as {
+        degradadas: TablaDegradadaInteranual[];
+        ejercicioAnterior: number;
+        ejercicio: number;
+      };
+      const lista = degradadas
+        .slice(0, 4)
+        .map((t) => tituloTablaLegible(t))
+        .join("; ");
+      return seniorExplanation(
+        `${degradadas.length} tabla(s) tenían datos en ${ejercicioAnterior} pero están vacías o incompletas en ${ejercicio}: ${lista}.`,
+        `Suele deberse a cuadros sin volcar al generar la memoria del nuevo ejercicio.`,
+        outcome.sugerencia ??
+          "Revise cada tabla señalada y complete los recuadros que faltan."
+      );
+    },
+    evidence(outcome) {
+      if (outcome.passed) return [];
+      const docName = outcome.data.docName as string | undefined;
+      const degradadas = (outcome.data.degradadas as TablaDegradadaInteranual[]) ?? [];
+      return degradadas.slice(0, 6).map((t) =>
+        withMemoryLocator(
+          t.apartado ? `Apartado ${t.apartado} — tabla incompleta` : "Tabla incompleta",
+          `${tituloTablaLegible(t)} (${t.celdasAnterior} celdas con datos en N-1 → ${t.celdasActual} en N)`,
+          {
+            documentName: docName,
+            page: t.pagina,
+            section: t.apartado?.replace(/\D/g, "").padStart(2, "0"),
+            sectionTitle: tituloTablaLegible(t),
+          },
+          "high"
+        )
+      );
     },
   },
 ];

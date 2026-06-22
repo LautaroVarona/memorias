@@ -6,6 +6,27 @@ export const UMBRAL_VARIACION_TEXTO_APARTADO = 0.1;
 /** Umbral de reducción de texto respecto al ejercicio anterior (50 %). */
 export const UMBRAL_REDUCCION_TEXTO_APARTADO = 0.5;
 
+const MESES_ES =
+  "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre";
+
+/**
+ * Normaliza texto para comparación interanual ignorando años, fechas e importes.
+ * Dos memorias consecutivas suelen diferir solo en cifras y ejercicios; eso no es un error.
+ */
+export function normalizarTextoComparacionInteranual(texto: string): string {
+  return normalizarTextoApartado(texto)
+    .replace(
+      new RegExp(`\\b\\d{1,2}\\s+de\\s+(?:${MESES_ES})\\s+de\\s+\\d{4}\\b`, "gi"),
+      " "
+    )
+    .replace(/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\b/g, " ")
+    .replace(/\ba\s+31\s+de\s+diciembre\b/g, " ")
+    .replace(/\b(?:19|20)\d{2}\b/g, " ")
+    .replace(/\d[\d.,\s]*(?:€|eur(?:os?)?)?/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
  * Normaliza el texto de un apartado para comparación interanual:
  * minúsculas, sin tildes, saltos de línea extra colapsados y espacios consecutivos unificados.
@@ -138,8 +159,13 @@ export function detectarVariacionesTextoApartados(
     const prior = priorMap.get(slug);
     if (!prior) continue;
 
-    const lenActual = normalizarTextoApartado(current.contenido).length;
-    const lenAnterior = normalizarTextoApartado(prior.contenido).length;
+    const textoActualNorm = normalizarTextoComparacionInteranual(current.contenido);
+    const textoAnteriorNorm = normalizarTextoComparacionInteranual(prior.contenido);
+
+    if (textoActualNorm === textoAnteriorNorm) continue;
+
+    const lenActual = textoActualNorm.length;
+    const lenAnterior = textoAnteriorNorm.length;
     const variacionPct = variacionLongitudPct(lenActual, lenAnterior);
     const reduccionPct = reduccionLongitudPct(lenActual, lenAnterior);
     const cambio = apartadoTextoCambioSignificativo(

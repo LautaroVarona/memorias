@@ -95,20 +95,23 @@ function MemoryEvidenceItem({
   evidence,
   showApartado,
   validacion,
+  defaultCollapsed = true,
 }: {
   evidence: ValidacionView["evidencia"][number];
   showApartado: boolean;
   validacion: ValidacionView;
+  defaultCollapsed?: boolean;
 }) {
   const narrative = evText(evidence);
   const apartado = extractApartadoFromEvidence(evidence);
+  const page = evidence.page;
 
   if (!narrative) {
     return <EvidenceBadge evidence={evidence} compact />;
   }
 
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-0.5" data-no-navigate>
       {showApartado && apartado && (
         <ApartadoLink
           apartado={apartado}
@@ -116,7 +119,14 @@ function MemoryEvidenceItem({
           highlightText={extractSearchSnippet(narrative)}
         />
       )}
-      <ExpandableText text={narrative} className="text-xs text-slate-600" clampLines={3} />
+      {page !== undefined && (
+        <span className="text-[10px] text-slate-400">Pág. {page}</span>
+      )}
+      <ExpandableText
+        text={narrative}
+        className="text-[11px] leading-snug text-slate-600"
+        clampLines={defaultCollapsed ? 2 : 3}
+      />
     </div>
   );
 }
@@ -144,7 +154,7 @@ function EvidenceSection({
   const showPerItemApartado = memoryApartados.length > 1;
 
   return (
-    <div className="mt-1.5 space-y-2">
+    <div className="mt-1 space-y-1.5" data-no-navigate>
       {evidencia.map((ev, i) => {
         const type = normalizeEvidenceType(ev);
         const narrative = evText(ev);
@@ -187,6 +197,11 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
 
   const canNavigateMemoria = memoryApartados.length > 0;
 
+  function goToMemoria(e?: React.MouseEvent) {
+    e?.stopPropagation();
+    navigateToMemoriaFromValidation(validacion);
+  }
+
   function handleCardClick(e: React.MouseEvent<HTMLElement>) {
     if (!canNavigateMemoria) return;
     if ((e.target as HTMLElement).closest("button, a, [data-no-navigate]")) return;
@@ -196,20 +211,20 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
   return (
     <article
       onClick={handleCardClick}
-      className={`rounded-md border border-slate-200 border-l-2 bg-white px-3 py-2 ${severityBorderClass(severityLevel)} ${
-        canNavigateMemoria ? "cursor-pointer transition hover:border-slate-300 hover:shadow-sm" : ""
+      className={`rounded-lg border border-slate-200 border-l-2 bg-white px-2.5 py-2 ${severityBorderClass(severityLevel)} ${
+        canNavigateMemoria ? "cursor-pointer transition hover:border-slate-300 hover:bg-slate-50/50" : ""
       }`}
     >
       <div className="flex items-start gap-2">
-        <div className="shrink-0">
+        <div className="shrink-0 pt-0.5">
           <SeverityBadge level={severityLevel} />
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <h3 className="text-sm font-semibold leading-tight text-slate-900">{title}</h3>
+            <h3 className="text-[13px] font-semibold leading-snug text-slate-900">{title}</h3>
             {validacion.tags?.includes("riesgo_fiscal") && (
-              <span className="inline-flex rounded bg-red-100 px-1.5 py-px text-[10px] font-semibold text-red-700">
+              <span className="inline-flex rounded bg-red-100 px-1 py-px text-[9px] font-semibold text-red-700">
                 Riesgo fiscal
               </span>
             )}
@@ -217,7 +232,20 @@ export function IssueCard({ validacion, variant }: IssueCardProps) {
           </div>
 
           {canNavigateMemoria && (
-            <p className="mt-0.5 text-[10px] text-blue-600/80">Clic para ver en la memoria</p>
+            <button
+              type="button"
+              onClick={goToMemoria}
+              className="mt-1 inline-flex items-center gap-0.5 text-[10px] font-medium text-blue-600 hover:text-blue-800"
+            >
+              Ver en memoria
+              <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                <path
+                  fillRule="evenodd"
+                  d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </button>
           )}
 
           {hasComparison && (

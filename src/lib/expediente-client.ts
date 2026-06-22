@@ -3,6 +3,7 @@ import { evaluateGlobalClosure } from "@/lib/rules/global-evaluation";
 import { computeCaseScore } from "@/lib/rules/scoring";
 import type { CaseData, Evidence } from "@/types/case-data";
 import {
+  getArchivoBlob,
   getExpediente,
   listArchivos,
   listExpedientes,
@@ -248,4 +249,45 @@ export async function runExpedienteProcess(
     await updateExpediente(expedienteId, { estado: "borrador" });
     throw err;
   }
+}
+
+function mimeTypeForFileName(nombre: string): string {
+  const ext = nombre.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "docx":
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    case "doc":
+      return "application/msword";
+    case "rtf":
+      return "application/rtf";
+    case "pdf":
+      return "application/pdf";
+    case "xlsm":
+      return "application/vnd.ms-excel.sheet.macroEnabled.12";
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+/** Abre el archivo original guardado en IndexedDB (flujo 100 % local en el navegador). */
+export async function openArchivoOriginal(archivoId: string, nombre: string): Promise<void> {
+  const buffer = await getArchivoBlob(archivoId);
+  if (!buffer) {
+    throw new Error(
+      "No se encontró el archivo en este navegador. Vuelva a subirlo si lo abrió en otro equipo."
+    );
+  }
+
+  const blob = new Blob([buffer], { type: mimeTypeForFileName(nombre) });
+  const url = URL.createObjectURL(blob);
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nombre;
+    a.click();
+  }
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
