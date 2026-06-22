@@ -1,4 +1,8 @@
 import type { ReportValidation } from "./checklist";
+import {
+  extractApartadoInfo,
+  formatApartadoLabel,
+} from "@/lib/evidence/apartado-ref";
 
 function stripLabel(text: string, labels: string[]): string {
   let out = text.trim();
@@ -79,5 +83,7 @@ export function buildFindingLine(v: ReportValidation): string {
   const badge = v.severidad === "critical" ? "[X]" : "[!]";
   const title = humanProblemDescription(v);
   const detail = buildHallazgoAccionText(v);
-  return `${badge} Problema detectado: ${title} | Hallazgo y Acción: ${detail}`;
+  const apartado = extractApartadoInfo(v);
+  const origin = apartado ? `Origen memoria: ${formatApartadoLabel(apartado)} | ` : "";
+  return `${badge} ${origin}Problema detectado: ${title} | Hallazgo y Acción: ${detail}`;
 }

@@ -15,7 +15,7 @@ import {
 } from "@/lib/storage/expediente-store";
 import type { ExpedienteListItem } from "@/lib/storage/types";
 import type { ProcessOutput } from "@/lib/process/expediente-core";
-import { processExpedienteRemote } from "@/lib/process/remote-process";
+import { processExpedienteLocal } from "@/lib/process/client-process";
 
 export interface ExpedienteDetail {
   id: string;
@@ -204,7 +204,7 @@ export async function runExpedienteProcess(
   await updateExpediente(expedienteId, { estado: "procesando" });
 
   try {
-    const data = await processExpedienteRemote({
+    const data = await processExpedienteLocal({
       expedienteId,
       cliente: expediente.cliente,
       ejercicio: expediente.ejercicio,

@@ -16,6 +16,7 @@ const nextConfig: NextConfig = {
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
+        buffer: require.resolve("buffer/"),
         fs: false,
         path: false,
         stream: false,

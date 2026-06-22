@@ -54,7 +54,7 @@ export async function processExpedienteLocal(input: {
     priorParsed = await parseArchivosList(input.priorYear.archivos, input.onProgress);
   }
 
-  input.onProgress?.("Ejecutando validaciones…");
+  input.onProgress?.("Ejecutando validaciones en el navegador…");
 
   return finalizeExpedienteCore({
     expedienteId: input.expedienteId,

@@ -12,6 +12,11 @@ import {
   type TipoMemoria,
 } from "./checklist";
 import { buildFindingLine, buildHallazgoAccion, humanProblemDescription } from "./format-issue";
+import {
+  extractApartadoFromEvidence,
+  extractApartadoInfo,
+  formatApartadoLabel,
+} from "@/lib/evidence/apartado-ref";
 
 export interface ReportData {
   expediente: {
@@ -194,13 +199,20 @@ function formatEvidence(ev: unknown[]): string {
   return ev
     .map((e) => {
       const item = e as Record<string, unknown>;
+      const apartado = extractApartadoFromEvidence(item as Parameters<typeof extractApartadoFromEvidence>[0]);
+      const apartadoLabel = apartado ? formatApartadoLabel(apartado) : "";
       const ref = item.reference ?? item.referencia ?? "";
       const val = item.formattedValue ?? item.value ?? item.valor ?? "";
       const text = item.text ?? item.detalle ?? "";
-      return `${ref} ${val} ${text}`.trim();
+      const section = item.section
+        ? `Apartado ${String(item.section).padStart(2, "0")}${item.sectionTitle ? ` (${item.sectionTitle})` : ""}`
+        : "";
+      const origin = apartadoLabel || section;
+      const parts = [origin, ref, val, text].filter(Boolean);
+      return parts.join(" | ").trim();
     })
     .filter(Boolean)
-    .join(" | ");
+    .join(" || ");
 }
 
 export function buildExcelRows(data: ReportData): Record<string, string | number>[] {
@@ -209,10 +221,12 @@ export function buildExcelRows(data: ReportData): Record<string, string | number
   return data.validaciones.map((v) => {
     const point = assignControlPoint(v.ruleId);
     const blockTitle = getActiveReviewBlock(tipoMemoria).title;
+    const apartado = extractApartadoInfo(v);
 
     return {
       Revisión: blockTitle,
       Punto: point.title,
+      Apartado: apartado ? formatApartadoLabel(apartado) : "",
       Problema: humanProblemDescription(v),
       Severidad: v.severidad,
       "Hallazgo y Acción": buildHallazgoAccion(v),

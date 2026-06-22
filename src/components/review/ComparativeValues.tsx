@@ -3,6 +3,7 @@ import { valuesMismatch } from "./evidence-utils";
 interface ComparativeValuesProps {
   excelValue?: string;
   memoryValue?: string;
+  memoryApartado?: string;
   tone?: "critical" | "warning";
 }
 
@@ -32,6 +33,7 @@ function formatDifference(excel?: string, memory?: string): string | null {
 export function ComparativeValues({
   excelValue,
   memoryValue,
+  memoryApartado,
   tone = "critical",
 }: ComparativeValuesProps) {
   if (!excelValue && !memoryValue) return null;
@@ -57,6 +59,9 @@ export function ComparativeValues({
         <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
           Memoria (Word)
         </p>
+        {memoryApartado && (
+          <p className="mt-0.5 text-[10px] font-medium text-blue-700">{memoryApartado}</p>
+        )}
         <p className="mt-0.5 font-mono tabular-nums text-slate-900">
           {memoryValue ?? "—"}
         </p>

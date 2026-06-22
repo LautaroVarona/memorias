@@ -172,13 +172,12 @@ export function isRedundantMeta(text: string, title: string, what?: string): boo
   return false;
 }
 
-export function extractApartadoRef(validacion: ValidacionView): string | undefined {
-  for (const ev of validacion.evidencia) {
-    if (ev.section) return ev.section.padStart(2, "0");
-    const m = evRef(ev).match(/apartado\s*(\d{1,2})/i);
-    if (m) return m[1].padStart(2, "0");
-  }
-  const fromMsg = (validacion.explanation ?? validacion.mensaje).match(/apartado\s*(\d{1,2})/i);
-  if (fromMsg) return fromMsg[1].padStart(2, "0");
-  return undefined;
-}
+export {
+  extractApartadoFromEvidence,
+  extractApartadoInfo,
+  extractApartadoRef,
+  formatApartadoLabel,
+  formatApartadoShort,
+  textIncludesApartado,
+  type ApartadoInfo,
+} from "@/lib/evidence/apartado-ref";

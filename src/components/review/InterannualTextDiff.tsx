@@ -15,12 +15,17 @@ interface DiffPanel {
 function buildPanels(evidencia: EvidenceItem[]): DiffPanel[] {
   return evidencia
     .filter((ev) => ev.diffPrior && ev.diffCurrent)
-    .map((ev, i) => ({
-      id: ev.group ?? `${i}`,
-      label: ev.sectionTitle ?? evRef(ev) ?? `Apartado ${i + 1}`,
-      prior: ev.diffPrior!,
-      current: ev.diffCurrent!,
-    }));
+    .map((ev, i) => {
+      const apartado = ev.section
+        ? `Apartado ${ev.section.padStart(2, "0")}${ev.sectionTitle ? ` — ${ev.sectionTitle}` : ""}`
+        : undefined;
+      return {
+        id: ev.group ?? `${i}`,
+        label: apartado ?? ev.sectionTitle ?? evRef(ev) ?? `Apartado ${i + 1}`,
+        prior: ev.diffPrior!,
+        current: ev.diffCurrent!,
+      };
+    });
 }
 
 function DiffLineColumns({ prior, current }: { prior: string; current: string }) {
