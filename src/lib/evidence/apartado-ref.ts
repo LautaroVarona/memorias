@@ -12,7 +12,7 @@ export interface ApartadoRefSource {
 }
 
 export interface ValidationApartadoSource {
-  evidencia: ApartadoRefSource[];
+  evidencia: readonly unknown[];
   explanation?: string | null;
   mensaje?: string;
   referencia?: string | null;
@@ -49,6 +49,11 @@ function cleanSectionTitle(title?: string): string | undefined {
 function isMemoryEvidence(ev: ApartadoRefSource): boolean {
   const t = (ev.type ?? ev.tipo ?? "").toLowerCase();
   return t === "memory" || t === "memoria";
+}
+
+function asApartadoRefSource(ev: unknown): ApartadoRefSource | null {
+  if (ev == null || typeof ev !== "object" || Array.isArray(ev)) return null;
+  return ev as ApartadoRefSource;
 }
 
 /** Extrae número (y título opcional) de un texto libre. */
@@ -133,8 +138,11 @@ export function extractApartadoFromEvidence(ev: ApartadoRefSource): ApartadoInfo
 
 /** Apartado principal de una validación (prioriza evidencia de memoria). */
 export function extractApartadoInfo(source: ValidationApartadoSource): ApartadoInfo | undefined {
-  const memoryEvs = source.evidencia.filter(isMemoryEvidence);
-  const ordered = [...memoryEvs, ...source.evidencia.filter((ev) => !isMemoryEvidence(ev))];
+  const items = source.evidencia
+    .map(asApartadoRefSource)
+    .filter((ev): ev is ApartadoRefSource => ev !== null);
+  const memoryEvs = items.filter(isMemoryEvidence);
+  const ordered = [...memoryEvs, ...items.filter((ev) => !isMemoryEvidence(ev))];
 
   for (const ev of ordered) {
     const info = extractApartadoFromEvidence(ev);
