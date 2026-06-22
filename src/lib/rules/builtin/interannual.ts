@@ -1,5 +1,6 @@
 import reglasFiscales from "../../../../data/pgc/reglas-fiscales.json";
 import { clasificarEmpresa } from "@/lib/classifier";
+import { formatEuro } from "@/lib/rules/helpers/accounts";
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
 import { withEuro, withMemoryLocator, withText } from "@/lib/rules/helpers/evidence";
 import {

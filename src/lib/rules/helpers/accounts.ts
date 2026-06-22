@@ -1,10 +1,6 @@
 import type { CaseData } from "@/types/case-data";
 import type { CuentaNormalizada } from "@/types/domain";
 import { getAccounts } from "@/lib/case/build-case-data";
-import {
-  cuentaByPrefixTracked,
-  sumByPrefixTracked,
-} from "@/lib/tracking/excel";
 
 export { cuentaByPrefixTracked, sumByPrefixTracked } from "@/lib/tracking/excel";
 
