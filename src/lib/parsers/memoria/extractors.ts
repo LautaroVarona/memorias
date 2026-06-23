@@ -126,17 +126,57 @@ export function extraerStatements(texto: string): MemoryStatement[] {
  */
 const CANONICAL_HEADING = /^(\d{2})\s+([A-ZÁÉÍÓÚÑ].{2,120})$/;
 
-const LEGACY_SECTION_PATTERNS = [
-  /^(\d+\.)\s+(.+)$/,
-  /^([IVXLC]+\.)\s+(.+)$/,
-  /^([A-Z]\.)\s+(.+)$/,
-  /^(\d+\.\d+\.)\s+(.+)$/,
-];
-
 interface CatalogoApartado {
   id: string;
   titulo: string;
   variantes: string[];
+  numero?: number;
+}
+
+const CATALOGO_ABREVIADA = apartadosPGC.abreviada as CatalogoApartado[];
+const CATALOGO_NORMAL = apartadosPGC.normal as CatalogoApartado[];
+const CATALOGO_COMPLETO = [...CATALOGO_ABREVIADA, ...CATALOGO_NORMAL];
+const CATALOGO_ABREVIADA_POR_NUMERO = new Map<number, CatalogoApartado>(
+  CATALOGO_ABREVIADA.filter((a) => typeof a.numero === "number").map((a) => [a.numero!, a])
+);
+
+function normalizarTituloCatalogo(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function coincideConCatalogoPorNumero(numero: number, titulo: string): boolean {
+  const entry = CATALOGO_ABREVIADA_POR_NUMERO.get(numero);
+  if (!entry) return false;
+  const normalizedTitle = normalizarTituloCatalogo(titulo);
+  const candidates = [entry.titulo, ...(entry.variantes ?? [])].map(normalizarTituloCatalogo);
+  return candidates.some((c) => normalizedTitle.includes(c));
+}
+
+function coincideConCatalogoGlobal(titulo: string): boolean {
+  const normalizedTitle = normalizarTituloCatalogo(titulo);
+  return CATALOGO_COMPLETO.some((entry) => {
+    const candidates = [entry.titulo, ...(entry.variantes ?? [])].map(normalizarTituloCatalogo);
+    return candidates.some((c) => normalizedTitle.includes(c));
+  });
+}
+
+function parseMainApartadoHeading(linea: string): { numero: number; titulo: string } | null {
+  const canonical = linea.match(CANONICAL_HEADING);
+  if (!canonical) return null;
+  const numero = parseInt(canonical[1], 10);
+  if (!Number.isFinite(numero) || numero > 30) return null;
+  const titulo = canonical[2].trim();
+
+  // Blindaje: solo encabezados presentes en el catálogo PGC.
+  if (coincideConCatalogoPorNumero(numero, titulo)) return { numero, titulo };
+  if (coincideConCatalogoGlobal(titulo)) return { numero, titulo };
+  return null;
 }
 
 function esObligatorio(titulo: string): boolean {
@@ -155,45 +195,17 @@ export function extraerApartados(texto: string): ApartadoMemoria[] {
   const apartados: ApartadoMemoria[] = [];
   let current: ApartadoMemoria | null = null;
 
-  // Primera pasada: numeración canónica "NN Título"
-  const usaCanonica = lineas.some((l) => !l.includes("|") && CANONICAL_HEADING.test(l));
-
   for (const linea of lineas) {
     if (!linea) continue;
-    let esTitulo = false;
-    let titulo = linea;
-    let numero: number | undefined;
-
-    if (!linea.includes("|")) {
-      const canonical = linea.match(CANONICAL_HEADING);
-      if (canonical && parseInt(canonical[1], 10) <= 30) {
-        esTitulo = true;
-        numero = parseInt(canonical[1], 10);
-        titulo = canonical[2].trim();
-      } else if (!usaCanonica) {
-        for (const pattern of LEGACY_SECTION_PATTERNS) {
-          const match = linea.match(pattern);
-          if (match) {
-            titulo = match[2] || match[1];
-            esTitulo = true;
-            break;
-          }
-        }
-        if (!esTitulo && linea.length < 80 && linea === linea.toUpperCase() && /[A-ZÁÉÍÓÚ]/.test(linea)) {
-          esTitulo = true;
-          titulo = linea;
-        }
-      }
-    }
-
-    if (esTitulo) {
+    const heading = !linea.includes("|") ? parseMainApartadoHeading(linea) : null;
+    if (heading) {
       if (current) apartados.push(current);
       current = {
-        id: numero !== undefined ? String(numero).padStart(2, "0") : `sec-${apartados.length + 1}`,
-        titulo,
+        id: String(heading.numero).padStart(2, "0"),
+        titulo: heading.titulo,
         contenido: "",
-        obligatorio: esObligatorio(titulo),
-        numero,
+        obligatorio: esObligatorio(heading.titulo),
+        numero: heading.numero,
       };
     } else if (current) {
       current.contenido += (current.contenido ? "\n" : "") + linea;
@@ -319,9 +331,9 @@ export function extraerTablas(texto: string): TablaMemoria[] {
     if (!linea.includes("|")) {
       flush();
       if (linea) {
-        const heading = linea.match(CANONICAL_HEADING);
-        if (heading && parseInt(heading[1], 10) <= 30) {
-          apartadoActual = heading[1];
+        const heading = parseMainApartadoHeading(linea);
+        if (heading) {
+          apartadoActual = String(heading.numero).padStart(2, "0");
         }
         ultimaNoVacia = linea;
       }

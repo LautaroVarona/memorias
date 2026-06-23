@@ -148,7 +148,8 @@ export function ExpedienteDetailContent() {
   const warnings = data.score?.warnings ?? data.resumen.warning;
   const memoriaSections = data.caseData?.memory?.sections ?? [];
   const priorMemoriaSections = data.caseData?.priorYear?.memory?.sections ?? [];
-  const ejercicioAnterior = data.caseData?.priorYear?.ejercicio;
+  const ejercicioMemoriaActual = data.caseData?.memory?.keyData?.ejercicio;
+  const ejercicioMemoriaAnterior = data.caseData?.priorYear?.memory?.keyData?.ejercicio;
 
   return (
     <div className="mx-auto max-w-[min(100%,90rem)] space-y-8 px-4 pb-12 sm:px-6">
@@ -237,7 +238,8 @@ export function ExpedienteDetailContent() {
           validaciones={data.validaciones as ValidacionView[]}
           memoriaSections={memoriaSections}
           priorMemoriaSections={priorMemoriaSections}
-          ejercicioAnterior={ejercicioAnterior}
+          ejercicioComparativaActual={ejercicioMemoriaActual}
+          ejercicioComparativaAnterior={ejercicioMemoriaAnterior}
           score={data.score?.score}
           estado={data.score?.globalEstado ?? data.score?.estado}
           motivoGlobal={data.score?.motivoGlobal}

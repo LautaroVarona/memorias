@@ -214,8 +214,11 @@ export const interannualRules: RuleDefinition[] = [
         data.priorYear.memory.sections
       );
 
-      const ejercicioAnterior = data.priorYear.ejercicio;
-      const ejercicio = data.metadata.ejercicio;
+      const ejercicioAnterior = data.priorYear.memory.keyData?.ejercicio;
+      const ejercicio = data.memory.keyData?.ejercicio;
+      if (!ejercicioAnterior || !ejercicio) {
+        return { passed: true, data: { skip: true } };
+      }
       const action =
         "Restaure los apartados omitidos en la memoria del ejercicio actual o justifique su ausencia según el tipo de memoria.";
 
@@ -306,8 +309,11 @@ export const interannualRules: RuleDefinition[] = [
         return { passed: true, data: { skip: true } };
       }
 
-      const ejercicioAnterior = data.priorYear.ejercicio;
-      const ejercicio = data.metadata.ejercicio;
+      const ejercicioAnterior = data.priorYear.memory.keyData?.ejercicio;
+      const ejercicio = data.memory.keyData?.ejercicio;
+      if (!ejercicioAnterior || !ejercicio) {
+        return { passed: true, data: { skip: true } };
+      }
       const descuadres = detectarDescuadresComparativa(
         data.memory.tables ?? [],
         data.priorYear.memory.tables ?? [],

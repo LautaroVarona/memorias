@@ -33,7 +33,8 @@ interface ReviewDashboardProps {
   validaciones: ValidacionView[];
   memoriaSections?: ApartadoMemoria[];
   priorMemoriaSections?: ApartadoMemoria[];
-  ejercicioAnterior?: number;
+  ejercicioComparativaActual?: number;
+  ejercicioComparativaAnterior?: number;
   score?: number;
   estado?: GlobalEstado | "critico";
   motivoGlobal?: string;
@@ -49,7 +50,8 @@ export function ReviewDashboard({
   validaciones,
   memoriaSections,
   priorMemoriaSections,
-  ejercicioAnterior,
+  ejercicioComparativaActual,
+  ejercicioComparativaAnterior,
   score,
   estado,
   motivoGlobal,
@@ -90,8 +92,8 @@ export function ReviewDashboard({
         <ApartadoReviewPanel
           sections={memoriaSections!}
           priorSections={priorMemoriaSections}
-          ejercicio={ejercicio}
-          ejercicioAnterior={ejercicioAnterior}
+          ejercicio={ejercicioComparativaActual}
+          ejercicioAnterior={ejercicioComparativaAnterior}
           validaciones={validaciones}
           filter={incidentFilter}
           onFilterChange={setIncidentFilter}

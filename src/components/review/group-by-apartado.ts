@@ -69,13 +69,6 @@ function findPriorSection(
   priorSections: ApartadoMemoria[]
 ): ApartadoMemoria | undefined {
   const slug = apartadoSlug(current);
-  if (current.numero !== undefined) {
-    const num = String(current.numero).padStart(2, "0");
-    const byNum = priorSections.find(
-      (s) => s.numero !== undefined && String(s.numero).padStart(2, "0") === num
-    );
-    if (byNum) return byNum;
-  }
   return priorSections.find((s) => apartadoSlug(s) === slug);
 }
 
