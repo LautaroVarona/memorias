@@ -10,11 +10,17 @@ export interface ComparedLine {
 
 interface ArrayDiffChunk<T> {
   value: T[];
+  paired?: T[];
   added?: boolean;
   removed?: boolean;
 }
 
-/** Alineación LCS equivalente a diffArrays de la librería `diff`. */
+function blocksMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  return normalizarTextoComparacionInteranual(a) === normalizarTextoComparacionInteranual(b);
+}
+
+/** Alineación LCS: empareja bloques idénticos o equivalentes (solo cambian cifras/años). */
 function diffBlocks(oldArr: string[], newArr: string[]): ArrayDiffChunk<string>[] {
   const n = oldArr.length;
   const m = newArr.length;
@@ -22,10 +28,9 @@ function diffBlocks(oldArr: string[], newArr: string[]): ArrayDiffChunk<string>[
 
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      dp[i][j] =
-        oldArr[i] === newArr[j]
-          ? dp[i + 1][j + 1] + 1
-          : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      dp[i][j] = blocksMatch(oldArr[i], newArr[j])
+        ? dp[i + 1][j + 1] + 1
+        : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
 
@@ -34,20 +39,22 @@ function diffBlocks(oldArr: string[], newArr: string[]): ArrayDiffChunk<string>[
   let j = 0;
 
   while (i < n || j < m) {
-    if (i < n && j < m && oldArr[i] === newArr[j]) {
-      const value: string[] = [];
-      while (i < n && j < m && oldArr[i] === newArr[j]) {
-        value.push(oldArr[i]);
+    if (i < n && j < m && blocksMatch(oldArr[i], newArr[j])) {
+      const priorRun: string[] = [];
+      const currentRun: string[] = [];
+      while (i < n && j < m && blocksMatch(oldArr[i], newArr[j])) {
+        priorRun.push(oldArr[i]);
+        currentRun.push(newArr[j]);
         i++;
         j++;
       }
-      changes.push({ value });
-    } else if (j < m && (i >= n || dp[i][j + 1] >= dp[i + 1][j])) {
-      changes.push({ value: [newArr[j]], added: true });
-      j++;
-    } else {
+      changes.push({ value: priorRun, paired: currentRun });
+    } else if (i < n && (j >= m || dp[i + 1][j] >= dp[i][j + 1])) {
       changes.push({ value: [oldArr[i]], removed: true });
       i++;
+    } else {
+      changes.push({ value: [newArr[j]], added: true });
+      j++;
     }
   }
 
@@ -107,51 +114,38 @@ export function buildLineComparison(priorText: string, currentText: string): Com
   let i = 0;
   while (i < changes.length) {
     const change = changes[i];
-    const next = changes[i + 1];
 
     if (!change.added && !change.removed) {
-      for (const block of change.value as string[]) {
-        result.push({ kind: "unchanged", prior: block, current: block });
+      const priorRun = change.value as string[];
+      const currentRun = change.paired ?? priorRun;
+      for (let k = 0; k < priorRun.length; k++) {
+        result.push(classifyPair(priorRun[k], currentRun[k] ?? priorRun[k]));
       }
       i++;
       continue;
     }
 
-    if (change.removed && next?.added) {
-      const priorItems = change.value as string[];
-      const currentItems = next.value as string[];
-      const pairs = Math.min(priorItems.length, currentItems.length);
-
-      for (let j = 0; j < pairs; j++) {
-        result.push(classifyPair(priorItems[j], currentItems[j]));
-      }
-      for (let j = pairs; j < priorItems.length; j++) {
-        result.push({ kind: "removed", prior: priorItems[j], current: "" });
-      }
-      for (let j = pairs; j < currentItems.length; j++) {
-        result.push({ kind: "added", prior: "", current: currentItems[j] });
-      }
-      i += 2;
-      continue;
-    }
-
-    if (change.removed) {
-      for (const block of change.value as string[]) {
-        result.push({ kind: "removed", prior: block, current: "" });
-      }
+    // Agrupa inserciones y eliminaciones consecutivas (en cualquier orden) y empareja por índice.
+    const removedBlocks: string[] = [];
+    const addedBlocks: string[] = [];
+    while (i < changes.length && (changes[i].added || changes[i].removed)) {
+      if (changes[i].removed) removedBlocks.push(...(changes[i].value as string[]));
+      if (changes[i].added) addedBlocks.push(...(changes[i].value as string[]));
       i++;
-      continue;
     }
 
-    if (change.added) {
-      for (const block of change.value as string[]) {
-        result.push({ kind: "added", prior: "", current: block });
+    const pairs = Math.max(removedBlocks.length, addedBlocks.length);
+    for (let j = 0; j < pairs; j++) {
+      const prior = removedBlocks[j] ?? "";
+      const current = addedBlocks[j] ?? "";
+      if (prior && current) {
+        result.push(classifyPair(prior, current));
+      } else if (prior) {
+        result.push({ kind: "removed", prior, current: "" });
+      } else if (current) {
+        result.push({ kind: "added", prior: "", current });
       }
-      i++;
-      continue;
     }
-
-    i++;
   }
 
   return result;

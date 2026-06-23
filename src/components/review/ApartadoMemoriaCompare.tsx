@@ -86,7 +86,7 @@ function DiffText({
   return <span className={style}>{text}</span>;
 }
 
-function DiffRowCells({
+function DiffRow({
   line,
   highlightQuery,
 }: {
@@ -97,7 +97,7 @@ function DiffRowCells({
   const currentEmpty = line.kind === "removed" || !line.current.trim();
 
   return (
-    <>
+    <div className="contents">
       <div className={`${CELL_BASE} ${CELL_BG[line.kind].prior}`}>
         {!priorEmpty && (
           <DiffText text={line.prior} kind={line.kind} side="prior" highlightQuery={highlightQuery} />
@@ -108,7 +108,7 @@ function DiffRowCells({
           <DiffText text={line.current} kind={line.kind} side="current" highlightQuery={highlightQuery} />
         )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -159,9 +159,9 @@ function CompareGrid({
         <div className="px-3 py-2">{priorLabel}</div>
         <div className="px-3 py-2">{currentLabel}</div>
       </div>
-      <div className="grid max-h-[28rem] grid-cols-2 divide-x divide-slate-100 overflow-y-auto text-[11px] leading-relaxed">
+      <div className="grid max-h-[28rem] grid-cols-2 auto-rows-min divide-x divide-slate-100 overflow-y-auto text-[11px] leading-relaxed">
         {lines.map((line, i) => (
-          <DiffRowCells key={i} line={line} highlightQuery={highlightQuery} />
+          <DiffRow key={i} line={line} highlightQuery={highlightQuery} />
         ))}
       </div>
     </div>
