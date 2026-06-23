@@ -121,10 +121,13 @@ export function extraerStatements(texto: string): MemoryStatement[] {
 }
 
 /**
- * Encabezado canónico de las memorias del despacho: "01 Actividad de la empresa".
- * Dos dígitos + espacio + título que empieza por letra, sin celdas de tabla.
+ * Encabezado de apartado: "01 Actividad", "03. Normas de registro", "12 - Situación fiscal".
+ * Acepta memorias normal y abreviada con numeración propia del documento.
  */
-const CANONICAL_HEADING = /^(\d{2})\s+([A-ZÁÉÍÓÚÑ].{2,120})$/;
+const CANONICAL_HEADING = /^(\d{1,2})[.\s)\-–:]+([A-ZÁÉÍÓÚÑ].{2,120})$/;
+
+const TITULO_APARTADO_INVALIDO =
+  /^(importe|saldo|total|subtotal|p[aá]gina|nota|tabla|anexo|movimientos)\b/i;
 
 interface CatalogoApartado {
   id: string;
@@ -133,50 +136,23 @@ interface CatalogoApartado {
   numero?: number;
 }
 
-const CATALOGO_ABREVIADA = apartadosPGC.abreviada as CatalogoApartado[];
-const CATALOGO_NORMAL = apartadosPGC.normal as CatalogoApartado[];
-const CATALOGO_COMPLETO = [...CATALOGO_ABREVIADA, ...CATALOGO_NORMAL];
-const CATALOGO_ABREVIADA_POR_NUMERO = new Map<number, CatalogoApartado>(
-  CATALOGO_ABREVIADA.filter((a) => typeof a.numero === "number").map((a) => [a.numero!, a])
-);
-
-function normalizarTituloCatalogo(texto: string): string {
-  return texto
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function coincideConCatalogoPorNumero(numero: number, titulo: string): boolean {
-  const entry = CATALOGO_ABREVIADA_POR_NUMERO.get(numero);
-  if (!entry) return false;
-  const normalizedTitle = normalizarTituloCatalogo(titulo);
-  const candidates = [entry.titulo, ...(entry.variantes ?? [])].map(normalizarTituloCatalogo);
-  return candidates.some((c) => normalizedTitle.includes(c));
-}
-
-function coincideConCatalogoGlobal(titulo: string): boolean {
-  const normalizedTitle = normalizarTituloCatalogo(titulo);
-  return CATALOGO_COMPLETO.some((entry) => {
-    const candidates = [entry.titulo, ...(entry.variantes ?? [])].map(normalizarTituloCatalogo);
-    return candidates.some((c) => normalizedTitle.includes(c));
-  });
+function esTituloApartadoValido(titulo: string): boolean {
+  const t = titulo.trim();
+  if (t.length < 3) return false;
+  if (TITULO_APARTADO_INVALIDO.test(t)) return false;
+  if (/^\d+([.,]\d+)?(\s*€)?$/.test(t)) return false;
+  return true;
 }
 
 function parseMainApartadoHeading(linea: string): { numero: number; titulo: string } | null {
   const canonical = linea.match(CANONICAL_HEADING);
   if (!canonical) return null;
   const numero = parseInt(canonical[1], 10);
-  if (!Number.isFinite(numero) || numero > 30) return null;
+  if (!Number.isFinite(numero) || numero < 1 || numero > 99) return null;
   const titulo = canonical[2].trim();
+  if (!esTituloApartadoValido(titulo)) return null;
 
-  // Blindaje: solo encabezados presentes en el catálogo PGC.
-  if (coincideConCatalogoPorNumero(numero, titulo)) return { numero, titulo };
-  if (coincideConCatalogoGlobal(titulo)) return { numero, titulo };
-  return null;
+  return { numero, titulo };
 }
 
 function esObligatorio(titulo: string): boolean {

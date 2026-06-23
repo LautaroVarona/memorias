@@ -220,8 +220,8 @@ function MemoriaCompareTable({
                 </div>
                 {col.key !== "label" && (
                   <div className="mt-1 grid grid-cols-2 gap-px text-[9px] font-normal uppercase tracking-wide text-slate-400">
-                    <span className="text-right">{priorLabel}</span>
-                    <span className="border-l border-slate-200 pl-1 text-left">{currentLabel}</span>
+                    <span className="text-center">{priorLabel}</span>
+                    <span className="border-l border-slate-200 text-center">{currentLabel}</span>
                   </div>
                 )}
               </th>
@@ -329,8 +329,8 @@ function TextCompareGrid({
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="grid grid-cols-2 gap-px border-b border-slate-100 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        <div className="bg-slate-50/90 px-3 py-2">{priorLabel}</div>
-        <div className="bg-slate-50/90 px-3 py-2">{currentLabel}</div>
+        <div className="bg-slate-50/90 px-3 py-2 text-left">{priorLabel}</div>
+        <div className="bg-blue-50/40 px-3 py-2 text-right font-bold text-blue-900">{currentLabel}</div>
       </div>
       <div className="grid max-h-[28rem] grid-cols-2 gap-px auto-rows-min overflow-y-auto bg-slate-100 text-[12px] leading-relaxed">
         {lines.map((line, i) => (
@@ -404,9 +404,13 @@ export function ApartadoMemoriaCompare({
   }, [priorText, currentText, diffsOnly]);
 
   const priorLabel =
-    ejercicioAnterior !== undefined ? `Memoria ${ejercicioAnterior}` : "Memoria año anterior";
+    ejercicioAnterior !== undefined
+      ? `← Memoria ${ejercicioAnterior} (anterior)`
+      : "← Memoria año anterior";
   const currentLabel =
-    ejercicioActual !== undefined ? `Memoria ${ejercicioActual}` : "Memoria actual";
+    ejercicioActual !== undefined
+      ? `Memoria ${ejercicioActual} (actual) →`
+      : "Memoria actual →";
 
   if (!priorText?.trim()) {
     return (
@@ -450,6 +454,12 @@ export function ApartadoMemoriaCompare({
       )}
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <CompareLegend />
+        {hasContent && (
+          <div className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide">
+            <div className="bg-slate-50/90 px-3 py-2 text-left text-slate-600">{priorLabel}</div>
+            <div className="bg-blue-50/50 px-3 py-2 text-right text-blue-900">{currentLabel}</div>
+          </div>
+        )}
         {hasContent ? (
           <div className="p-2">
             <ContentBlocks

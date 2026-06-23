@@ -93,8 +93,10 @@ export function ReviewDashboard({
         <ApartadoReviewPanel
           sections={memoriaSections!}
           priorSections={priorMemoriaSections}
-          ejercicio={ejercicioComparativaActual}
-          ejercicioAnterior={ejercicioComparativaAnterior}
+          ejercicio={ejercicioComparativaActual ?? ejercicio}
+          ejercicioAnterior={
+            ejercicioComparativaAnterior ?? (ejercicio > 0 ? ejercicio - 1 : undefined)
+          }
           validaciones={validaciones}
           filter={incidentFilter}
           onFilterChange={setIncidentFilter}

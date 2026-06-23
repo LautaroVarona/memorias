@@ -58,10 +58,11 @@ function MemoriaDiffBadge({
   ejercicioAnterior?: number;
 }) {
   if (structuralCount > 0) {
-    const year = ejercicioAnterior !== undefined ? ` ${ejercicioAnterior}` : "";
+    const ref =
+      ejercicioAnterior !== undefined ? `memoria ${ejercicioAnterior}` : "año anterior";
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-        {structuralCount} ruptura{structuralCount !== 1 ? "s" : ""} vs{year || " N-1"}
+        {structuralCount} ruptura{structuralCount !== 1 ? "s" : ""} vs {ref}
       </span>
     );
   }
