@@ -20,15 +20,26 @@ interface ApartadoMemoriaCompareProps {
   diffsOnly?: boolean;
 }
 
-const ROW_STYLES: Record<LineDiffKind, { prior: string; current: string }> = {
-  unchanged: { prior: "bg-white text-slate-600", current: "bg-white text-slate-600" },
-  expected: { prior: "bg-blue-50/80 text-slate-700", current: "bg-blue-50/80 text-slate-700" },
-  structural: { prior: "bg-red-50 text-red-900", current: "bg-emerald-50 text-emerald-900" },
-  removed: { prior: "bg-red-50 text-red-800 line-through decoration-red-300", current: "bg-slate-50 text-slate-300" },
-  added: { prior: "bg-slate-50 text-slate-300", current: "bg-emerald-50 text-emerald-900" },
+const TEXT_STYLES: Record<LineDiffKind, { prior: string; current: string }> = {
+  unchanged: { prior: "text-slate-600", current: "text-slate-600" },
+  expected: { prior: "text-slate-700", current: "text-slate-700" },
+  structural: { prior: "text-red-900", current: "text-emerald-900" },
+  removed: { prior: "text-red-900", current: "" },
+  added: { prior: "", current: "text-emerald-900" },
 };
 
-function LineCell({
+const CELL_BG: Record<LineDiffKind, { prior: string; current: string }> = {
+  unchanged: { prior: "bg-white", current: "bg-white" },
+  expected: { prior: "bg-blue-50/80", current: "bg-blue-50/80" },
+  structural: { prior: "bg-red-50", current: "bg-emerald-50" },
+  removed: { prior: "bg-red-50", current: "bg-white" },
+  added: { prior: "bg-white", current: "bg-emerald-50" },
+};
+
+const CELL_BASE =
+  "min-h-[1.75rem] whitespace-pre-wrap break-words border-b border-slate-50 px-3 py-1.5 font-mono";
+
+function DiffText({
   text,
   kind,
   side,
@@ -39,18 +50,8 @@ function LineCell({
   side: "prior" | "current";
   highlightQuery?: string;
 }) {
-  const style = ROW_STYLES[kind][side];
-  const isSpacer =
-    !text.trim() &&
-    ((kind === "removed" && side === "current") || (kind === "added" && side === "prior"));
-
-  if (isSpacer) {
-    return <span className="block min-h-[1.25rem]" aria-hidden />;
-  }
-
-  if (!text.trim()) {
-    return <span className="text-slate-300">—</span>;
-  }
+  const style = TEXT_STYLES[kind][side];
+  if (!style || !text.trim()) return null;
 
   if (kind === "expected") {
     return (
@@ -83,6 +84,32 @@ function LineCell({
   }
 
   return <span className={style}>{text}</span>;
+}
+
+function DiffRowCells({
+  line,
+  highlightQuery,
+}: {
+  line: ComparedLine;
+  highlightQuery?: string;
+}) {
+  const priorEmpty = line.kind === "added" || !line.prior.trim();
+  const currentEmpty = line.kind === "removed" || !line.current.trim();
+
+  return (
+    <>
+      <div className={`${CELL_BASE} ${CELL_BG[line.kind].prior}`}>
+        {!priorEmpty && (
+          <DiffText text={line.prior} kind={line.kind} side="prior" highlightQuery={highlightQuery} />
+        )}
+      </div>
+      <div className={`${CELL_BASE} ${CELL_BG[line.kind].current}`}>
+        {!currentEmpty && (
+          <DiffText text={line.current} kind={line.kind} side="current" highlightQuery={highlightQuery} />
+        )}
+      </div>
+    </>
+  );
 }
 
 function CompareLegend() {
@@ -132,19 +159,9 @@ function CompareGrid({
         <div className="px-3 py-2">{priorLabel}</div>
         <div className="px-3 py-2">{currentLabel}</div>
       </div>
-      <div className="max-h-[28rem] overflow-y-auto text-[11px] leading-relaxed">
+      <div className="grid max-h-[28rem] grid-cols-2 divide-x divide-slate-100 overflow-y-auto text-[11px] leading-relaxed">
         {lines.map((line, i) => (
-          <div
-            key={i}
-            className="grid grid-cols-2 divide-x divide-slate-100 border-b border-slate-50 font-mono last:border-0"
-          >
-            <pre className="whitespace-pre-wrap break-words px-3 py-1.5">
-              <LineCell text={line.prior} kind={line.kind} side="prior" highlightQuery={highlightQuery} />
-            </pre>
-            <pre className="whitespace-pre-wrap break-words px-3 py-1.5">
-              <LineCell text={line.current} kind={line.kind} side="current" highlightQuery={highlightQuery} />
-            </pre>
-          </div>
+          <DiffRowCells key={i} line={line} highlightQuery={highlightQuery} />
         ))}
       </div>
     </div>
