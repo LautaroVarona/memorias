@@ -36,6 +36,13 @@ function LineCell({
   highlightQuery?: string;
 }) {
   const style = ROW_STYLES[kind][side];
+  const isSpacer =
+    !text.trim() &&
+    ((kind === "removed" && side === "current") || (kind === "added" && side === "prior"));
+
+  if (isSpacer) {
+    return <span className="block min-h-[1.25rem]" aria-hidden />;
+  }
 
   if (!text.trim()) {
     return <span className="text-slate-300">—</span>;
