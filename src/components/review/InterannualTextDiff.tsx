@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { EvidenceItem } from "./types";
 import { evRef } from "./parse-issue";
+import { ApartadoMemoriaCompare } from "./ApartadoMemoriaCompare";
 
 interface DiffPanel {
   id: string;
@@ -25,46 +26,6 @@ function buildPanels(evidencia: EvidenceItem[]): DiffPanel[] {
         current: ev.diffCurrent!,
       };
     });
-}
-
-function DiffLineColumns({ prior, current }: { prior: string; current: string }) {
-  const priorLines = prior.split("\n");
-  const currentLines = current.split("\n");
-  const rows = Math.max(priorLines.length, currentLines.length);
-
-  return (
-    <div className="grid max-h-80 grid-cols-2 gap-px overflow-auto rounded-md border border-slate-200 bg-slate-200 text-xs">
-      <div className="bg-slate-50 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        Ejercicio anterior
-      </div>
-      <div className="bg-slate-50 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        Ejercicio actual
-      </div>
-      {Array.from({ length: rows }, (_, i) => {
-        const left = priorLines[i] ?? "";
-        const right = currentLines[i] ?? "";
-        const changed = left !== right;
-        return (
-          <div key={i} className="contents">
-            <pre
-              className={`whitespace-pre-wrap break-words px-2 py-1 font-mono leading-relaxed ${
-                changed ? "bg-red-50 text-red-900" : "bg-white text-slate-700"
-              }`}
-            >
-              {left || " "}
-            </pre>
-            <pre
-              className={`whitespace-pre-wrap break-words px-2 py-1 font-mono leading-relaxed ${
-                changed ? "bg-emerald-50 text-emerald-900" : "bg-white text-slate-700"
-              }`}
-            >
-              {right || " "}
-            </pre>
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 export function InterannualTextDiff({
@@ -115,7 +76,12 @@ export function InterannualTextDiff({
               ))}
             </div>
           )}
-          <DiffLineColumns prior={panel.prior} current={panel.current} />
+          <ApartadoMemoriaCompare
+            priorText={panel.prior}
+            currentText={panel.current}
+            diffsOnly
+            emphasizeStructural
+          />
         </div>
       )}
     </div>

@@ -1,4 +1,14 @@
+import { diffChars } from "diff";
 import { normalizarTextoComparacionInteranual } from "@/lib/rules/helpers/text-normalize";
+import {
+  buildTableComparison,
+  cifrasEquivalentes,
+  limpiarCeldaTabla,
+  summarizeTableDiff,
+  tableHasChanges,
+  type ComparedTable,
+} from "./apartado-table-diff";
+import { segmentMemoriaContent, type MemoriaSegment } from "./parse-pipe-table";
 
 export type LineDiffKind = "unchanged" | "expected" | "structural" | "removed" | "added";
 
@@ -7,6 +17,10 @@ export interface ComparedLine {
   prior: string;
   current: string;
 }
+
+export type ComparedBlock =
+  | { type: "text"; line: ComparedLine }
+  | { type: "table"; table: ComparedTable };
 
 interface ArrayDiffChunk<T> {
   value: T[];
@@ -63,19 +77,23 @@ function diffBlocks(oldArr: string[], newArr: string[]): ArrayDiffChunk<string>[
 
 /** Cambio solo de cifras o años (curso lectivo), no de redacción. */
 export function isSoloCambioEsperado(prior: string, current: string): boolean {
-  if (prior === current) return false;
-  return normalizarTextoComparacionInteranual(prior) === normalizarTextoComparacionInteranual(current);
+  const p = limpiarCeldaTabla(prior);
+  const c = limpiarCeldaTabla(current);
+  if (p === c) return false;
+  if (cifrasEquivalentes(p, c)) return false;
+  return normalizarTextoComparacionInteranual(p) === normalizarTextoComparacionInteranual(c);
 }
 
 function normalizeTextForDiff(text: string): string {
-  return text
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return limpiarCeldaTabla(
+    text
+      .replace(/\r\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+  );
 }
 
 /** Divide en párrafos; si no hay dobles saltos, cae a líneas para no comparar un bloque monolítico. */
-function splitBlocks(text: string): string[] {
+function splitTextBlocks(text: string): string[] {
   const normalized = normalizeTextForDiff(text);
   const paragraphs = normalized
     .split(/\n\n+/)
@@ -87,13 +105,214 @@ function splitBlocks(text: string): string[] {
   return normalized
     .split("\n")
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter((line) => line.length > 0 && !line.includes("|"));
+}
+
+function segmentKey(seg: MemoriaSegment): string {
+  if (seg.type === "text") {
+    return `t:${normalizarTextoComparacionInteranual(seg.content).slice(0, 240)}`;
+  }
+  const labels = seg.rows
+    .slice(0, 6)
+    .map((r) => normalizarTextoComparacionInteranual(r[0] ?? ""))
+    .join("|");
+  return `tbl:${labels}`;
+}
+
+function segmentsToBlocks(segments: MemoriaSegment[]): { key: string; segment: MemoriaSegment }[] {
+  return segments.map((segment) => ({ key: segmentKey(segment), segment }));
 }
 
 function classifyPair(prior: string, current: string): ComparedLine {
-  if (prior === current) return { kind: "unchanged", prior, current };
-  if (isSoloCambioEsperado(prior, current)) return { kind: "expected", prior, current };
-  return { kind: "structural", prior, current };
+  const p = normalizeTextForDiff(prior);
+  const c = normalizeTextForDiff(current);
+  if (p === c || cifrasEquivalentes(p, c)) return { kind: "unchanged", prior: p, current: c };
+  if (isSoloCambioEsperado(p, c)) return { kind: "expected", prior: p, current: c };
+  return { kind: "structural", prior: p, current: c };
+}
+
+function pairTextBlocks(priorBlocks: string[], currentBlocks: string[]): ComparedBlock[] {
+  const changes = diffBlocks(priorBlocks, currentBlocks);
+  const result: ComparedBlock[] = [];
+
+  let i = 0;
+  while (i < changes.length) {
+    const change = changes[i];
+
+    if (!change.added && !change.removed) {
+      const priorRun = change.value as string[];
+      const currentRun = change.paired ?? priorRun;
+      for (let k = 0; k < priorRun.length; k++) {
+        result.push({ type: "text", line: classifyPair(priorRun[k], currentRun[k] ?? priorRun[k]) });
+      }
+      i++;
+      continue;
+    }
+
+    const removedBlocks: string[] = [];
+    const addedBlocks: string[] = [];
+    while (i < changes.length && (changes[i].added || changes[i].removed)) {
+      if (changes[i].removed) removedBlocks.push(...(changes[i].value as string[]));
+      if (changes[i].added) addedBlocks.push(...(changes[i].value as string[]));
+      i++;
+    }
+
+    const pairs = Math.max(removedBlocks.length, addedBlocks.length);
+    for (let j = 0; j < pairs; j++) {
+      const prior = removedBlocks[j] ?? "";
+      const current = addedBlocks[j] ?? "";
+      if (prior && current) {
+        result.push({ type: "text", line: classifyPair(prior, current) });
+      } else if (prior) {
+        result.push({ type: "text", line: { kind: "removed", prior, current: "" } });
+      } else if (current) {
+        result.push({ type: "text", line: { kind: "added", prior: "", current } });
+      }
+    }
+  }
+
+  return result;
+}
+
+function tableSegmentToText(seg: MemoriaSegment): string {
+  if (seg.type !== "table") return "";
+  return seg.rows.map((row) => row.join(" | ")).join("\n");
+}
+
+function alignSegments(
+  priorSegs: MemoriaSegment[],
+  currentSegs: MemoriaSegment[]
+): ComparedBlock[] {
+  const prior = segmentsToBlocks(priorSegs);
+  const current = segmentsToBlocks(currentSegs);
+  const changes = diffBlocks(
+    prior.map((b) => b.key),
+    current.map((b) => b.key)
+  );
+
+  const result: ComparedBlock[] = [];
+  let pi = 0;
+  let ci = 0;
+  let i = 0;
+
+  while (i < changes.length) {
+    const change = changes[i];
+
+    if (!change.added && !change.removed) {
+      const runLen = change.value.length;
+      for (let k = 0; k < runLen; k++) {
+        const pSeg = prior[pi + k]?.segment;
+        const cSeg = current[ci + k]?.segment;
+        if (!pSeg || !cSeg) continue;
+
+        if (pSeg.type === "table" && cSeg.type === "table") {
+          const table = buildTableComparison(
+            tableSegmentToText(pSeg),
+            tableSegmentToText(cSeg)
+          );
+          result.push({ type: "table", table });
+        } else if (pSeg.type === "text" && cSeg.type === "text") {
+          result.push(...pairTextBlocks(splitTextBlocks(pSeg.content), splitTextBlocks(cSeg.content)));
+        } else {
+          result.push(
+            ...pairTextBlocks(
+              [pSeg.type === "text" ? pSeg.content : tableSegmentToText(pSeg)],
+              [cSeg.type === "text" ? cSeg.content : tableSegmentToText(cSeg)]
+            )
+          );
+        }
+      }
+      pi += runLen;
+      ci += runLen;
+      i++;
+      continue;
+    }
+
+    const removedKeys: string[] = [];
+    const addedKeys: string[] = [];
+    while (i < changes.length && (changes[i].added || changes[i].removed)) {
+      if (changes[i].removed) removedKeys.push(...(changes[i].value as string[]));
+      if (changes[i].added) addedKeys.push(...(changes[i].value as string[]));
+      i++;
+    }
+
+    const pairs = Math.max(removedKeys.length, addedKeys.length);
+    for (let j = 0; j < pairs; j++) {
+      const pSeg = prior[pi]?.segment;
+      const cSeg = current[ci]?.segment;
+
+      if (pSeg && cSeg) {
+        if (pSeg.type === "table" && cSeg.type === "table") {
+          result.push({
+            type: "table",
+            table: buildTableComparison(tableSegmentToText(pSeg), tableSegmentToText(cSeg)),
+          });
+        } else {
+          result.push(
+            ...pairTextBlocks(
+              [pSeg.type === "text" ? pSeg.content : tableSegmentToText(pSeg)],
+              [cSeg.type === "text" ? cSeg.content : tableSegmentToText(cSeg)]
+            )
+          );
+        }
+        pi++;
+        ci++;
+      } else if (pSeg) {
+        if (pSeg.type === "table") {
+          result.push({
+            type: "table",
+            table: buildTableComparison(tableSegmentToText(pSeg), ""),
+          });
+        } else {
+          result.push({ type: "text", line: { kind: "removed", prior: pSeg.content, current: "" } });
+        }
+        pi++;
+      } else if (cSeg) {
+        if (cSeg.type === "table") {
+          result.push({
+            type: "table",
+            table: buildTableComparison("", tableSegmentToText(cSeg)),
+          });
+        } else {
+          result.push({ type: "text", line: { kind: "added", prior: "", current: cSeg.content } });
+        }
+        ci++;
+      }
+    }
+  }
+
+  return result;
+}
+
+export function buildContentComparison(priorText: string, currentText: string): ComparedBlock[] {
+  const priorSegs = segmentMemoriaContent(normalizeTextForDiff(priorText));
+  const currentSegs = segmentMemoriaContent(normalizeTextForDiff(currentText));
+
+  if (priorSegs.length === 0 && currentSegs.length === 0) return [];
+  if (priorSegs.length === 0) {
+    return currentSegs.flatMap((seg) => {
+      if (seg.type === "table") {
+        return [{ type: "table" as const, table: buildTableComparison("", tableSegmentToText(seg)) }];
+      }
+      return splitTextBlocks(seg.content).map((block) => ({
+        type: "text" as const,
+        line: { kind: "added" as const, prior: "", current: block },
+      }));
+    });
+  }
+  if (currentSegs.length === 0) {
+    return priorSegs.flatMap((seg) => {
+      if (seg.type === "table") {
+        return [{ type: "table" as const, table: buildTableComparison(tableSegmentToText(seg), "") }];
+      }
+      return splitTextBlocks(seg.content).map((block) => ({
+        type: "text" as const,
+        line: { kind: "removed" as const, prior: block, current: "" },
+      }));
+    });
+  }
+
+  return alignSegments(priorSegs, currentSegs);
 }
 
 export function hasContentDiff(priorText: string, currentText: string): boolean {
@@ -111,6 +330,16 @@ export function isStructuralDiffKind(kind: LineDiffKind): boolean {
   return kind === "structural" || kind === "removed" || kind === "added";
 }
 
+function countBlockDiff(block: ComparedBlock): { structural: number; expected: number } {
+  if (block.type === "text") {
+    if (block.line.kind === "unchanged") return { structural: 0, expected: 0 };
+    if (block.line.kind === "expected") return { structural: 0, expected: 1 };
+    return { structural: 1, expected: 0 };
+  }
+  const summary = summarizeTableDiff(block.table);
+  return { structural: summary.structuralCount, expected: summary.expectedCount };
+}
+
 export function summarizeMemoriaDiff(priorText: string, currentText: string): MemoriaDiffSummary {
   const empty: MemoriaDiffSummary = {
     hasDiff: false,
@@ -120,13 +349,13 @@ export function summarizeMemoriaDiff(priorText: string, currentText: string): Me
   };
   if (!priorText?.trim() || !currentText?.trim()) return empty;
 
-  const lines = buildLineComparison(priorText, currentText);
+  const blocks = buildContentComparison(priorText, currentText);
   let structuralCount = 0;
   let expectedCount = 0;
-  for (const line of lines) {
-    if (line.kind === "unchanged") continue;
-    if (line.kind === "expected") expectedCount++;
-    else structuralCount++;
+  for (const block of blocks) {
+    const counts = countBlockDiff(block);
+    structuralCount += counts.structural;
+    expectedCount += counts.expected;
   }
 
   return {
@@ -137,54 +366,27 @@ export function summarizeMemoriaDiff(priorText: string, currentText: string): Me
   };
 }
 
+export function filterChangedBlocks(blocks: ComparedBlock[]): ComparedBlock[] {
+  return blocks.filter((block) => {
+    if (block.type === "text") return block.line.kind !== "unchanged";
+    return tableHasChanges(block.table);
+  });
+}
+
 export function filterChangedLines(lines: ComparedLine[]): ComparedLine[] {
   return lines.filter((line) => line.kind !== "unchanged");
 }
 
+/** @deprecated Preferir buildContentComparison para soporte de tablas alineadas. */
 export function buildLineComparison(priorText: string, currentText: string): ComparedLine[] {
-  const priorBlocks = splitBlocks(priorText);
-  const currentBlocks = splitBlocks(currentText);
-  const changes = diffBlocks(priorBlocks, currentBlocks);
-  const result: ComparedLine[] = [];
-
-  let i = 0;
-  while (i < changes.length) {
-    const change = changes[i];
-
-    if (!change.added && !change.removed) {
-      const priorRun = change.value as string[];
-      const currentRun = change.paired ?? priorRun;
-      for (let k = 0; k < priorRun.length; k++) {
-        result.push(classifyPair(priorRun[k], currentRun[k] ?? priorRun[k]));
-      }
-      i++;
-      continue;
-    }
-
-    // Agrupa inserciones y eliminaciones consecutivas (en cualquier orden) y empareja por índice.
-    const removedBlocks: string[] = [];
-    const addedBlocks: string[] = [];
-    while (i < changes.length && (changes[i].added || changes[i].removed)) {
-      if (changes[i].removed) removedBlocks.push(...(changes[i].value as string[]));
-      if (changes[i].added) addedBlocks.push(...(changes[i].value as string[]));
-      i++;
-    }
-
-    const pairs = Math.max(removedBlocks.length, addedBlocks.length);
-    for (let j = 0; j < pairs; j++) {
-      const prior = removedBlocks[j] ?? "";
-      const current = addedBlocks[j] ?? "";
-      if (prior && current) {
-        result.push(classifyPair(prior, current));
-      } else if (prior) {
-        result.push({ kind: "removed", prior, current: "" });
-      } else if (current) {
-        result.push({ kind: "added", prior: "", current });
-      }
-    }
-  }
-
-  return result;
+  return buildContentComparison(priorText, currentText).flatMap((block) => {
+    if (block.type === "text") return [block.line];
+    return block.table.rows.map((row) => ({
+      kind: row.kind,
+      prior: row.cells.map((c) => c.prior).filter(Boolean).join(" | ") || row.label,
+      current: row.cells.map((c) => c.current).filter(Boolean).join(" | ") || row.label,
+    }));
+  });
 }
 
 export type HighlightPart = { key: number; text: string; expected: boolean };
@@ -196,4 +398,58 @@ export function tokenizeForHighlight(text: string): HighlightPart[] {
     text: part,
     expected: /^\b20\d{2}\b$/.test(part) || /^\d[\d.,]*(?:\s*€)?$/.test(part),
   }));
+}
+
+export type CharDiffKind = "equal" | "removed" | "added";
+
+export interface CharDiffSegment {
+  text: string;
+  kind: CharDiffKind;
+}
+
+/** Resalta solo los caracteres que difieren entre dos cadenas alineadas. */
+export function buildCharDiffSegments(prior: string, current: string): {
+  prior: CharDiffSegment[];
+  current: CharDiffSegment[];
+} {
+  const priorSegments: CharDiffSegment[] = [];
+  const currentSegments: CharDiffSegment[] = [];
+
+  for (const change of diffChars(prior, current)) {
+    if (change.removed) {
+      priorSegments.push({ text: change.value, kind: "removed" });
+    } else if (change.added) {
+      currentSegments.push({ text: change.value, kind: "added" });
+    } else {
+      const segment = { text: change.value, kind: "equal" as const };
+      priorSegments.push(segment);
+      currentSegments.push(segment);
+    }
+  }
+
+  return { prior: priorSegments, current: currentSegments };
+}
+
+export function charSegmentsForLine(
+  line: ComparedLine,
+  side: "prior" | "current"
+): CharDiffSegment[] | null {
+  const text = side === "prior" ? line.prior : line.current;
+  if (!text) return null;
+
+  if (line.kind === "unchanged" || line.kind === "expected") return null;
+
+  if (line.kind === "removed") {
+    return side === "prior" ? [{ text, kind: "removed" }] : null;
+  }
+  if (line.kind === "added") {
+    return side === "current" ? [{ text, kind: "added" }] : null;
+  }
+
+  const segments = buildCharDiffSegments(line.prior, line.current);
+  return side === "prior" ? segments.prior : segments.current;
+}
+
+export function isRupturaKind(kind: LineDiffKind): boolean {
+  return isStructuralDiffKind(kind);
 }

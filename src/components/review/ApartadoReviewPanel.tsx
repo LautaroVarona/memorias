@@ -150,12 +150,12 @@ export function ApartadoReviewPanel({
             onClick={toggleDiffsMode}
             className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition ${
               diffsMode
-                ? "bg-violet-600 text-white"
-                : "border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                ? "bg-amber-700 text-white"
+                : "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
             }`}
           >
             Desplegar difs
-            <span className={`ml-1 tabular-nums ${diffsMode ? "opacity-90" : "text-violet-500"}`}>
+            <span className={`ml-1 tabular-nums ${diffsMode ? "opacity-90" : "text-amber-600"}`}>
               ({diffApartadoCount})
             </span>
           </button>

@@ -60,9 +60,8 @@ function MemoriaDiffBadge({
   if (structuralCount > 0) {
     const year = ejercicioAnterior !== undefined ? ` ${ejercicioAnterior}` : "";
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
-        <span className="h-1.5 w-1.5 rounded-full bg-white/90" aria-hidden />
-        {structuralCount} diff{structuralCount !== 1 ? "s" : ""} vs{year || " N-1"}
+      <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+        {structuralCount} ruptura{structuralCount !== 1 ? "s" : ""} vs{year || " N-1"}
       </span>
     );
   }
@@ -109,7 +108,7 @@ export function ApartadoReviewSection({
   const emphasizeMemoriaDiff = hasStructuralDiff || hasMemoriaRuleIssue;
 
   const articleRing = emphasizeMemoriaDiff
-    ? "ring-2 ring-violet-500/50 shadow-md shadow-violet-200/60"
+    ? "ring-1 ring-red-300/60"
     : group.memoriaDiff.hasDiff
       ? "ring-1 ring-blue-200/80"
       : "";
@@ -125,7 +124,7 @@ export function ApartadoReviewSection({
         type="button"
         onClick={() => setOpen(!open)}
         className={`flex w-full items-start gap-3 px-4 py-3 text-left ${
-          emphasizeMemoriaDiff ? "bg-violet-50/40 hover:bg-violet-50/70" : "hover:bg-white/60"
+          emphasizeMemoriaDiff ? "bg-red-50/30 hover:bg-red-50/50" : "hover:bg-white/60"
         }`}
       >
         <div className="min-w-0 flex-1">
@@ -156,13 +155,13 @@ export function ApartadoReviewSection({
               {emphasizeMemoriaDiff && (
                 <>
                   {(group.counts.critical > 0 || group.counts.warning > 0) && " · "}
-                  <span className="font-medium text-violet-700">Texto distinto entre memorias</span>
+                  <span className="font-medium text-red-800">Ruptura lógica entre memorias</span>
                 </>
               )}
             </p>
           ) : emphasizeMemoriaDiff ? (
-            <p className="mt-1 text-[11px] font-medium text-violet-700">
-              Texto distinto respecto a la memoria del año anterior
+            <p className="mt-1 text-[11px] font-medium text-red-800">
+              Ruptura lógica respecto a la memoria del año anterior
             </p>
           ) : group.memoriaDiff.hasDiff ? (
             <p className="mt-1 text-[11px] text-blue-600">Solo cambian cifras o referencias de ejercicio</p>
@@ -200,19 +199,19 @@ export function ApartadoReviewSection({
             <section
               className={
                 emphasizeMemoriaDiff
-                  ? "rounded-xl border-2 border-violet-300/80 bg-violet-50/25 p-3 ring-1 ring-violet-200"
+                  ? "rounded-xl border border-red-200/80 bg-red-50/20 p-3"
                   : undefined
               }
             >
               <h3
                 className={`mb-2 text-[10px] font-semibold uppercase tracking-wide ${
-                  emphasizeMemoriaDiff ? "text-violet-800" : "text-slate-500"
+                  emphasizeMemoriaDiff ? "text-red-900" : "text-slate-500"
                 }`}
               >
                 Comparativa con memoria anterior
                 {emphasizeMemoriaDiff && structuralCount > 0 && (
-                  <span className="ml-2 normal-case font-bold text-violet-600">
-                    · {structuralCount} bloque{structuralCount !== 1 ? "s" : ""} con texto distinto
+                  <span className="ml-2 normal-case font-bold text-red-700">
+                    · {structuralCount} ruptura{structuralCount !== 1 ? "s" : ""} lógica{structuralCount !== 1 ? "s" : ""}
                   </span>
                 )}
               </h3>

@@ -36,6 +36,8 @@ export function normalizarTextoApartado(texto: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\f/g, " ")
+    .replace(/\u00a0/g, " ")
     .replace(/\r\n/g, "\n")
     .replace(/\n{2,}/g, "\n")
     .replace(/[ \t]+/g, " ")

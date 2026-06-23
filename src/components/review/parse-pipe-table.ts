@@ -8,7 +8,7 @@ function isTableLine(line: string): boolean {
   return trimmed.split("|").filter((c) => c.trim().length > 0).length >= 2;
 }
 
-function parseTableRow(line: string): string[] {
+export function parseTableRow(line: string): string[] {
   return line
     .split("|")
     .map((c) => c.trim())
