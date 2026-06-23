@@ -134,12 +134,14 @@ export function isPass(v: ValidacionView): boolean {
 /** Reglas INTER_* mostradas solo en el bloque de variación interanual (no en tarjetas de auditoría). */
 export function isInterannualStatOnly(ruleId: string): boolean {
   return (
-    ruleId.startsWith("INTER_") && ruleId !== "INTER_007" && ruleId !== "INTER_008"
+    ruleId.startsWith("INTER_") &&
+    ruleId !== "INTER_008" &&
+    ruleId !== "INTER_010"
   );
 }
 
-export function supportsInterannualDiff(ruleId: string): boolean {
-  return ruleId === "INTER_007";
+export function supportsInterannualDiff(_ruleId: string): boolean {
+  return false;
 }
 
 /** Referencia de apartado (p. ej. "09") extraída de la evidencia o del mensaje. */

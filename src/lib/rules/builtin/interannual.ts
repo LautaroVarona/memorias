@@ -1,16 +1,14 @@
 import { clasificarEmpresa } from "@/lib/classifier";
+import { formatEuro } from "@/lib/rules/helpers/accounts";
+import {
+  detectarDescuadresComparativa,
+  type DescuadreComparativa,
+} from "@/lib/rules/helpers/coherencia-comparativa";
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
 import { withEuro, withMemoryLocator, withText } from "@/lib/rules/helpers/evidence";
 import {
-  detectarTablasDegradadasInteranual,
-  tituloTablaLegible,
-  type TablaDegradadaInteranual,
-} from "@/lib/rules/helpers/tablas-interanual";
-import {
   detectarApartadosOmitidos,
-  detectarVariacionesTextoApartados,
   type ApartadoOmitido,
-  type ApartadoVariacionTexto,
 } from "@/lib/rules/helpers/text-normalize";
 import type { TipoEmpresa } from "@/types/domain";
 import type { RuleDefinition } from "../types";
@@ -297,212 +295,104 @@ export const interannualRules: RuleDefinition[] = [
     },
   },
   {
-    id: "INTER_007",
-    title: "Pérdida de contenido narrativo (no cambios de cifra o año)",
+    id: "INTER_010",
+    title: "Cifra comparativa incoherente con la memoria del ejercicio anterior",
     type: "interannual",
-    defaultSeverity: "warning",
+    defaultSeverity: "error",
     normativa: "PGC",
-    referencia: "Análisis interanual — contenido narrativo de apartados",
+    referencia: "Coherencia de columnas comparativas entre memorias consecutivas",
     execute(data) {
       if (!data.memory || !data.priorYear?.memory) {
         return { passed: true, data: { skip: true } };
       }
 
-      const variados = detectarVariacionesTextoApartados(
-        data.memory.sections,
-        data.priorYear.memory.sections
-      );
-
       const ejercicioAnterior = data.priorYear.ejercicio;
       const ejercicio = data.metadata.ejercicio;
-      const action =
-        "Revise si falta texto obligatorio respecto al ejercicio anterior; los cambios solo de cifras o fechas son normales.";
+      const descuadres = detectarDescuadresComparativa(
+        data.memory.tables ?? [],
+        data.priorYear.memory.tables ?? [],
+        ejercicio,
+        ejercicioAnterior
+      );
 
-      if (variados.length === 0) {
-        return {
-          passed: true,
-          data: { ejercicioAnterior, ejercicio },
-        };
+      if (descuadres.length === 0) {
+        return { passed: true, data: { ejercicioAnterior, ejercicio } };
       }
 
-      const impact =
-        variados.length === 1
-          ? `La redacción del apartado ${variados[0].nombre} ha variado sustancialmente respecto al año anterior.`
-          : variados
-              .map(
-                (v) =>
-                  `La redacción del apartado ${v.nombre} ha variado sustancialmente respecto al año anterior.`
-              )
-              .join(" ");
-
-      const diagnosis = `Se detectaron cambios significativos en ${variados.length} apartado(s) al comparar la memoria de ${ejercicio} con la de ${ejercicioAnterior}.`;
+      const action =
+        `Revise las columnas «importe ${ejercicioAnterior}» de la memoria de ${ejercicio}: deben coincidir con las cifras de ${ejercicioAnterior} publicadas en la memoria de ese ejercicio.`;
 
       return {
         passed: false,
-        severity: "warning",
-        diagnosis,
-        impact,
-        action,
+        severity: "error",
+        diagnosis: `${descuadres.length} cifra(s) comparativa(s) no coinciden con la memoria de ${ejercicioAnterior}.`,
         sugerencia: action,
         data: {
-          variados,
+          descuadres,
           ejercicioAnterior,
           ejercicio,
+          docName: data.memory.metadata.archivo,
         },
       };
     },
     explanation(outcome) {
       if (outcome.passed) {
         if (outcome.data.skip) {
-          return seniorExplanationPass("No hay memoria del ejercicio anterior para comparar el contenido de los apartados.");
+          return seniorExplanationPass(
+            "No hay dos memorias para contrastar las columnas comparativas."
+          );
         }
         const { ejercicioAnterior, ejercicio } = outcome.data as {
           ejercicioAnterior: number;
           ejercicio: number;
         };
         return seniorExplanationPass(
-          `El contenido textual de los apartados comunes entre ${ejercicio} y ${ejercicioAnterior} se mantiene dentro de los umbrales de integridad.`
+          `Las cifras de ${ejercicioAnterior} citadas en la memoria de ${ejercicio} coinciden con la memoria publicada de ${ejercicioAnterior}.`
         );
       }
 
-      const { variados, ejercicioAnterior, ejercicio } = outcome.data as {
-        variados: ApartadoVariacionTexto[];
+      const { descuadres, ejercicioAnterior, ejercicio } = outcome.data as {
+        descuadres: DescuadreComparativa[];
         ejercicioAnterior: number;
         ejercicio: number;
       };
 
-      const detalle = variados
-        .map((v) => {
-          const etiqueta = v.numero !== undefined ? `${String(v.numero).padStart(2, "0")} ${v.nombre}` : v.nombre;
-          const pct = (v.variacionPct * 100).toFixed(1);
-          const motivo =
-            v.motivo === "reduccion"
-              ? `reducción del ${(v.reduccionPct * 100).toFixed(1)} %`
-              : `variación del ${pct} %`;
-          return `${etiqueta} (${motivo})`;
-        })
+      const muestra = descuadres
+        .slice(0, 3)
+        .map(
+          (d) =>
+            `«${d.filaEtiqueta}»: ${formatEuro(d.valorMemoriaAnterior)} en memoria ${ejercicioAnterior} vs ${formatEuro(d.valorColumnaComparativa)} en columna ${ejercicioAnterior} de memoria ${ejercicio}`
+        )
         .join("; ");
-
-      const impact =
-        outcome.impact ??
-        variados
-          .map(
-            (v) =>
-              `La redacción del apartado ${v.nombre} ha variado sustancialmente respecto al año anterior.`
-          )
-          .join(" ");
-
-      const action =
-        outcome.action ??
-        "Revise si el cambio es correcto o si falta información obligatoria que sí estaba en el ejercicio anterior.";
 
       return seniorExplanation(
         outcome.diagnosis ??
-          `${variados.length} apartado(s) con cambios significativos entre ${ejercicioAnterior} y ${ejercicio}: ${detalle}.`,
-        impact,
-        action
-      );
-    },
-    evidence(outcome) {
-      if (outcome.passed) return [];
-      const { variados, ejercicioAnterior, ejercicio } = outcome.data as {
-        variados: ApartadoVariacionTexto[];
-        ejercicioAnterior: number;
-        ejercicio: number;
-      };
-
-      return variados.map((v) => {
-        const ref =
-          v.numero !== undefined
-            ? `Apartado ${String(v.numero).padStart(2, "0")}`
-            : `Apartado ${v.nombre}`;
-        const pctLabel =
-          v.motivo === "reduccion"
-            ? `-${(v.reduccionPct * 100).toFixed(1)} %`
-            : `${v.lenActual >= v.lenAnterior ? "+" : "-"}${(v.variacionPct * 100).toFixed(1)} %`;
-        return {
-          type: "memory" as const,
-          reference: ref,
-          text: `Cambio de texto: ${pctLabel} (${v.lenAnterior} → ${v.lenActual} caracteres, ${ejercicioAnterior} → ${ejercicio})`,
-          importance: "high" as const,
-          section: v.numero !== undefined ? String(v.numero).padStart(2, "0") : undefined,
-          sectionTitle: v.nombre,
-          diffPrior: v.textoAnterior,
-          diffCurrent: v.textoActual,
-          group: v.slug,
-        };
-      });
-    },
-  },
-  {
-    id: "INTER_009",
-    title: "Tabla incompleta respecto al ejercicio anterior",
-    type: "interannual",
-    defaultSeverity: "error",
-    normativa: "PGC",
-    referencia: "Análisis interanual — tablas con celdas vacías",
-    execute(data) {
-      if (!data.memory || !data.priorYear?.memory) {
-        return { passed: true, data: { skip: true } };
-      }
-
-      const tablasActual = data.memory.tables ?? [];
-      const tablasAnterior = data.priorYear.memory.tables ?? [];
-      const degradadas = detectarTablasDegradadasInteranual(tablasActual, tablasAnterior);
-
-      const ejercicioAnterior = data.priorYear.ejercicio;
-      const ejercicio = data.metadata.ejercicio;
-
-      if (degradadas.length === 0) {
-        return { passed: true, data: { ejercicioAnterior, ejercicio } };
-      }
-
-      return {
-        passed: false,
-        severity: "error",
-        sugerencia:
-          "Complete las tablas que tenían datos el año anterior o elimine la fila/cuadro si ya no aplica.",
-        data: { degradadas, ejercicioAnterior, ejercicio, docName: data.memory.metadata.archivo },
-      };
-    },
-    explanation(outcome) {
-      if (outcome.passed) {
-        if (outcome.data.skip) {
-          return seniorExplanationPass("No hay dos memorias para comparar tablas entre ejercicios.");
-        }
-        return seniorExplanationPass(
-          "Las tablas comparables mantienen el mismo nivel de detalle que el ejercicio anterior."
-        );
-      }
-      const { degradadas, ejercicioAnterior, ejercicio } = outcome.data as {
-        degradadas: TablaDegradadaInteranual[];
-        ejercicioAnterior: number;
-        ejercicio: number;
-      };
-      const lista = degradadas
-        .slice(0, 4)
-        .map((t) => tituloTablaLegible(t))
-        .join("; ");
-      return seniorExplanation(
-        `${degradadas.length} tabla(s) tenían datos en ${ejercicioAnterior} pero están vacías o incompletas en ${ejercicio}: ${lista}.`,
-        `Suele deberse a cuadros sin volcar al generar la memoria del nuevo ejercicio.`,
+          `${descuadres.length} cifra(s) del ejercicio ${ejercicioAnterior} no cuadran entre memorias.`,
+        `Es normal que varien los importes del ejercicio actual (${ejercicio}); lo crítico es que la columna comparativa de ${ejercicioAnterior} reproduzca fielmente lo ya publicado.`,
         outcome.sugerencia ??
-          "Revise cada tabla señalada y complete los recuadros que faltan."
+          `Corrija las referencias a ${ejercicioAnterior} en la memoria de ${ejercicio}. Ejemplos: ${muestra}.`
       );
     },
     evidence(outcome) {
       if (outcome.passed) return [];
       const docName = outcome.data.docName as string | undefined;
-      const degradadas = (outcome.data.degradadas as TablaDegradadaInteranual[]) ?? [];
-      return degradadas.slice(0, 6).map((t) =>
+      const { descuadres, ejercicioAnterior, ejercicio } = outcome.data as {
+        descuadres: DescuadreComparativa[];
+        ejercicioAnterior: number;
+        ejercicio: number;
+      };
+
+      return descuadres.slice(0, 8).map((d) =>
         withMemoryLocator(
-          t.apartado ? `Apartado ${t.apartado} — tabla incompleta` : "Tabla incompleta",
-          `${tituloTablaLegible(t)} (${t.celdasAnterior} celdas con datos en N-1 → ${t.celdasActual} en N)`,
+          d.apartado
+            ? `Apartado ${d.apartado.padStart(2, "0")} — ${d.filaEtiqueta}`
+            : d.filaEtiqueta,
+          `Memoria ${ejercicioAnterior}: ${formatEuro(d.valorMemoriaAnterior)} · Columna ${ejercicioAnterior} en memoria ${ejercicio}: ${formatEuro(d.valorColumnaComparativa)}`,
           {
             documentName: docName,
-            page: t.pagina,
-            section: t.apartado?.replace(/\D/g, "").padStart(2, "0"),
-            sectionTitle: tituloTablaLegible(t),
+            page: d.pagina,
+            section: d.apartado?.replace(/\D/g, "").padStart(2, "0"),
+            sectionTitle: d.tablaTitulo,
           },
           "high"
         )
