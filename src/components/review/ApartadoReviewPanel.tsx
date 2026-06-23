@@ -176,7 +176,7 @@ export function ApartadoReviewPanel({
               group={group}
               ejercicio={ejercicio}
               ejercicioAnterior={ejercicioAnterior}
-              defaultOpen={group.status !== "ok"}
+              defaultOpen={group.status !== "ok" || group.memoriaDiff.hasStructuralDiff}
               open={openSections[group.num]}
               onOpenChange={(next) =>
                 setOpenSections((prev) => ({ ...prev, [group.num]: next }))

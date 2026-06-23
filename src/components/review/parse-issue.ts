@@ -145,6 +145,11 @@ export function isExpedienteLevelOnly(ruleId: string): boolean {
   return ruleId === "TEMP_003";
 }
 
+/** Reglas cuyo fallo suele implicar diferencia entre memorias N y N-1. */
+export function isMemoriaComparisonRule(ruleId: string): boolean {
+  return ruleId.startsWith("INTER_") || ruleId.startsWith("NARR_ADV_");
+}
+
 export function supportsInterannualDiff(_ruleId: string): boolean {
   return false;
 }

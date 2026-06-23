@@ -7,7 +7,7 @@ import type { ValidacionView } from "./types";
 import { ApartadoMemoriaCompare } from "./ApartadoMemoriaCompare";
 import { IssueCard } from "./IssueCard";
 import { SeverityBadge, severityBorderClass } from "./SeverityBadge";
-import { isCritical, isPass, isWarning } from "./parse-issue";
+import { isCritical, isMemoriaComparisonRule, isPass, isWarning } from "./parse-issue";
 
 interface ApartadoReviewSectionProps {
   group: ApartadoReviewGroup;
@@ -48,6 +48,34 @@ const STATUS_RING: Record<ApartadoReviewGroup["status"], string> = {
   ok: "border-emerald-200/80 bg-white",
 };
 
+function MemoriaDiffBadge({
+  structuralCount,
+  expectedCount,
+  ejercicioAnterior,
+}: {
+  structuralCount: number;
+  expectedCount: number;
+  ejercicioAnterior?: number;
+}) {
+  if (structuralCount > 0) {
+    const year = ejercicioAnterior !== undefined ? ` ${ejercicioAnterior}` : "";
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+        <span className="h-1.5 w-1.5 rounded-full bg-white/90" aria-hidden />
+        {structuralCount} diff{structuralCount !== 1 ? "s" : ""} vs{year || " N-1"}
+      </span>
+    );
+  }
+  if (expectedCount > 0) {
+    return (
+      <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-800">
+        Solo cifras / años
+      </span>
+    );
+  }
+  return null;
+}
+
 export function ApartadoReviewSection({
   group,
   ejercicio,
@@ -74,21 +102,43 @@ export function ApartadoReviewSection({
   const hasCompare =
     Boolean(group.contenido?.trim()) || Boolean(group.contenidoAnterior?.trim());
 
+  const { hasStructuralDiff, structuralCount, expectedCount } = group.memoriaDiff;
+  const hasMemoriaRuleIssue = group.validations.some(
+    (v) => (isCritical(v) || isWarning(v)) && isMemoriaComparisonRule(v.ruleId)
+  );
+  const emphasizeMemoriaDiff = hasStructuralDiff || hasMemoriaRuleIssue;
+
+  const articleRing = emphasizeMemoriaDiff
+    ? "ring-2 ring-violet-500/50 shadow-md shadow-violet-200/60"
+    : group.memoriaDiff.hasDiff
+      ? "ring-1 ring-blue-200/80"
+      : "";
+
   return (
     <article
       id={group.num === "general" ? "apartado-general" : `apartado-${group.num}`}
       data-apartado={group.num === "general" ? undefined : group.num}
-      className={`scroll-mt-4 overflow-hidden rounded-xl border ${STATUS_RING[group.status]} ${severityBorderClass(group.status)} border-l-4`}
+      data-memoria-diff={emphasizeMemoriaDiff ? "structural" : group.memoriaDiff.hasDiff ? "expected" : undefined}
+      className={`scroll-mt-4 overflow-hidden rounded-xl border ${STATUS_RING[group.status]} ${severityBorderClass(group.status)} border-l-4 ${articleRing}`}
     >
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-white/60"
+        className={`flex w-full items-start gap-3 px-4 py-3 text-left ${
+          emphasizeMemoriaDiff ? "bg-violet-50/40 hover:bg-violet-50/70" : "hover:bg-white/60"
+        }`}
       >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-semibold text-slate-900">{formatApartadoHeading(group)}</h2>
             <SeverityBadge level={group.status} />
+            {group.memoriaDiff.hasDiff && (
+              <MemoriaDiffBadge
+                structuralCount={structuralCount}
+                expectedCount={expectedCount}
+                ejercicioAnterior={ejercicioAnterior}
+              />
+            )}
           </div>
           {hasIssues ? (
             <p className="mt-1 text-[11px] text-slate-500">
@@ -103,7 +153,19 @@ export function ApartadoReviewSection({
                   {group.counts.warning} advertencia{group.counts.warning !== 1 ? "s" : ""}
                 </span>
               )}
+              {emphasizeMemoriaDiff && (
+                <>
+                  {(group.counts.critical > 0 || group.counts.warning > 0) && " · "}
+                  <span className="font-medium text-violet-700">Texto distinto entre memorias</span>
+                </>
+              )}
             </p>
+          ) : emphasizeMemoriaDiff ? (
+            <p className="mt-1 text-[11px] font-medium text-violet-700">
+              Texto distinto respecto a la memoria del año anterior
+            </p>
+          ) : group.memoriaDiff.hasDiff ? (
+            <p className="mt-1 text-[11px] text-blue-600">Solo cambian cifras o referencias de ejercicio</p>
           ) : (
             <p className="mt-1 text-[11px] text-emerald-600">Sin incidencias</p>
           )}
@@ -135,9 +197,24 @@ export function ApartadoReviewSection({
           )}
 
           {hasCompare && (
-            <section>
-              <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            <section
+              className={
+                emphasizeMemoriaDiff
+                  ? "rounded-xl border-2 border-violet-300/80 bg-violet-50/25 p-3 ring-1 ring-violet-200"
+                  : undefined
+              }
+            >
+              <h3
+                className={`mb-2 text-[10px] font-semibold uppercase tracking-wide ${
+                  emphasizeMemoriaDiff ? "text-violet-800" : "text-slate-500"
+                }`}
+              >
                 Comparativa con memoria anterior
+                {emphasizeMemoriaDiff && structuralCount > 0 && (
+                  <span className="ml-2 normal-case font-bold text-violet-600">
+                    · {structuralCount} bloque{structuralCount !== 1 ? "s" : ""} con texto distinto
+                  </span>
+                )}
               </h3>
               <ApartadoMemoriaCompare
                 priorText={group.contenidoAnterior}
@@ -146,6 +223,7 @@ export function ApartadoReviewSection({
                 ejercicioActual={ejercicio}
                 highlightQuery={highlightText}
                 diffsOnly={diffsOnly}
+                emphasizeStructural={emphasizeMemoriaDiff}
               />
             </section>
           )}

@@ -97,8 +97,44 @@ function classifyPair(prior: string, current: string): ComparedLine {
 }
 
 export function hasContentDiff(priorText: string, currentText: string): boolean {
-  if (!priorText?.trim() || !currentText?.trim()) return false;
-  return buildLineComparison(priorText, currentText).some((line) => line.kind !== "unchanged");
+  return summarizeMemoriaDiff(priorText, currentText).hasDiff;
+}
+
+export interface MemoriaDiffSummary {
+  hasDiff: boolean;
+  hasStructuralDiff: boolean;
+  structuralCount: number;
+  expectedCount: number;
+}
+
+export function isStructuralDiffKind(kind: LineDiffKind): boolean {
+  return kind === "structural" || kind === "removed" || kind === "added";
+}
+
+export function summarizeMemoriaDiff(priorText: string, currentText: string): MemoriaDiffSummary {
+  const empty: MemoriaDiffSummary = {
+    hasDiff: false,
+    hasStructuralDiff: false,
+    structuralCount: 0,
+    expectedCount: 0,
+  };
+  if (!priorText?.trim() || !currentText?.trim()) return empty;
+
+  const lines = buildLineComparison(priorText, currentText);
+  let structuralCount = 0;
+  let expectedCount = 0;
+  for (const line of lines) {
+    if (line.kind === "unchanged") continue;
+    if (line.kind === "expected") expectedCount++;
+    else structuralCount++;
+  }
+
+  return {
+    hasDiff: structuralCount + expectedCount > 0,
+    hasStructuralDiff: structuralCount > 0,
+    structuralCount,
+    expectedCount,
+  };
 }
 
 export function filterChangedLines(lines: ComparedLine[]): ComparedLine[] {

@@ -1,6 +1,7 @@
 import type { ApartadoMemoria } from "@/types/domain";
 import type { ValidacionView } from "./types";
 import { apartadoSlug } from "@/lib/rules/helpers/text-normalize";
+import { summarizeMemoriaDiff, type MemoriaDiffSummary } from "./apartado-line-diff";
 import {
   extractApartadoFromEvidence,
   extractApartadoInfo,
@@ -24,6 +25,7 @@ export interface ApartadoReviewGroup {
   status: ApartadoStatus;
   validations: ValidacionView[];
   counts: { critical: number; warning: number; pass: number };
+  memoriaDiff: MemoriaDiffSummary;
 }
 
 const GENERAL_NUM = "general";
@@ -95,6 +97,7 @@ export function buildApartadoGroups(
       status: "ok",
       validations: [],
       counts: { critical: 0, warning: 0, pass: 0 },
+      memoriaDiff: summarizeMemoriaDiff(prior?.contenido ?? "", sec.contenido ?? ""),
     });
   }
 
@@ -111,6 +114,7 @@ export function buildApartadoGroups(
           status: "ok",
           validations: [],
           counts: { critical: 0, warning: 0, pass: 0 },
+          memoriaDiff: summarizeMemoriaDiff("", ""),
         };
         map.set(num, group);
       }
