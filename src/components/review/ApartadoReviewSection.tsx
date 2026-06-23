@@ -17,6 +17,7 @@ interface ApartadoReviewSectionProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   highlightText?: string;
+  diffsOnly?: boolean;
 }
 
 function PassRow({ validacion }: { validacion: ValidacionView }) {
@@ -55,6 +56,7 @@ export function ApartadoReviewSection({
   open: controlledOpen,
   onOpenChange,
   highlightText,
+  diffsOnly = false,
 }: ApartadoReviewSectionProps) {
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const open = controlledOpen ?? internalOpen;
@@ -113,7 +115,7 @@ export function ApartadoReviewSection({
 
       {open && (
         <div className="space-y-4 border-t border-slate-200/80 bg-white px-4 py-4">
-          {hasIssues && (
+          {hasIssues && !diffsOnly && (
             <section className="space-y-2">
               {criticos.length > 0 && (
                 <div className="space-y-2 rounded-lg border border-red-200 bg-red-50/60 p-2.5">
@@ -143,11 +145,12 @@ export function ApartadoReviewSection({
                 ejercicioAnterior={ejercicioAnterior}
                 ejercicioActual={ejercicio}
                 highlightQuery={highlightText}
+                diffsOnly={diffsOnly}
               />
             </section>
           )}
 
-          {superadas.length > 0 && (
+          {superadas.length > 0 && !diffsOnly && (
             <section className="border-t border-slate-100 pt-2">
               <button
                 type="button"

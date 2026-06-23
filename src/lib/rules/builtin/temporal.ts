@@ -164,26 +164,41 @@ export const temporalRules: RuleDefinition[] = [
     normativa: "PGC",
     referencia: "Coherencia entre memorias del expediente",
     execute(data) {
-      const ejercicioActual = data.memory?.keyData.ejercicio;
-      const ejercicioAnterior =
-        data.priorYear?.memory?.keyData?.ejercicio ?? data.priorYear?.ejercicio;
+      const ejercicioExpediente = data.metadata.ejercicio;
+      const ejercicioPriorExpediente = data.priorYear?.ejercicio;
+      const ejercicioEnMemoriaActual = data.memory?.keyData.ejercicio;
+      const ejercicioEnMemoriaAnterior = data.priorYear?.memory?.keyData?.ejercicio;
 
-      // El ejercicio del Excel/libro de cierre no se usa: solo importan las memorias (.DOC).
-      if (ejercicioActual === undefined || !data.priorYear?.memory) {
+      if (!data.priorYear?.memory || ejercicioEnMemoriaActual === undefined) {
         return { passed: true, data: { skip: true } };
       }
+
+      // Expedientes enlazados (N y N-1): fuente de verdad del par comparado.
+      if (
+        ejercicioExpediente !== undefined &&
+        ejercicioPriorExpediente !== undefined &&
+        ejercicioPriorExpediente > 0 &&
+        ejercicioExpediente === ejercicioPriorExpediente + 1
+      ) {
+        return {
+          passed: true,
+          data: { ejercicioActual: ejercicioExpediente, ejercicioAnterior: ejercicioPriorExpediente },
+        };
+      }
+
+      const ejercicioAnterior = ejercicioEnMemoriaAnterior ?? ejercicioPriorExpediente;
       if (ejercicioAnterior === undefined || ejercicioAnterior <= 0) {
         return { passed: true, data: { skip: true } };
       }
 
-      const consecutivos = ejercicioActual === ejercicioAnterior + 1;
+      const consecutivos = ejercicioEnMemoriaActual === ejercicioAnterior + 1;
 
       return {
         passed: consecutivos,
         severity: "critical",
         sugerencia:
           "Compruebe que la memoria del ejercicio actual y la del ejercicio anterior son las correctas.",
-        data: { ejercicioActual, ejercicioAnterior },
+        data: { ejercicioActual: ejercicioEnMemoriaActual, ejercicioAnterior },
       };
     },
     explanation(outcome) {

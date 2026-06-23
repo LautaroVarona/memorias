@@ -89,6 +89,15 @@ function classifyPair(prior: string, current: string): ComparedLine {
   return { kind: "structural", prior, current };
 }
 
+export function hasContentDiff(priorText: string, currentText: string): boolean {
+  if (!priorText?.trim() || !currentText?.trim()) return false;
+  return buildLineComparison(priorText, currentText).some((line) => line.kind !== "unchanged");
+}
+
+export function filterChangedLines(lines: ComparedLine[]): ComparedLine[] {
+  return lines.filter((line) => line.kind !== "unchanged");
+}
+
 export function buildLineComparison(priorText: string, currentText: string): ComparedLine[] {
   const priorBlocks = splitBlocks(priorText);
   const currentBlocks = splitBlocks(currentText);

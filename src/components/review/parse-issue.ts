@@ -140,6 +140,11 @@ export function isInterannualStatOnly(ruleId: string): boolean {
   );
 }
 
+/** Validaciones de expediente/documentos; no van en tarjetas por apartado. */
+export function isExpedienteLevelOnly(ruleId: string): boolean {
+  return ruleId === "TEMP_003";
+}
+
 export function supportsInterannualDiff(_ruleId: string): boolean {
   return false;
 }

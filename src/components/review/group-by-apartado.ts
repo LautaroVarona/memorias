@@ -6,6 +6,7 @@ import {
   extractApartadoInfo,
   filterConflictingPasses,
   isCritical,
+  isExpedienteLevelOnly,
   isInterannualStatOnly,
   isPass,
   isWarning,
@@ -78,7 +79,7 @@ export function buildApartadoGroups(
   priorSections: ApartadoMemoria[] = []
 ): ApartadoReviewGroup[] {
   const filtered = filterConflictingPasses(validaciones).filter(
-    (v) => !isInterannualStatOnly(v.ruleId)
+    (v) => !isInterannualStatOnly(v.ruleId) && !isExpedienteLevelOnly(v.ruleId)
   );
 
   const map = new Map<string, ApartadoReviewGroup>();

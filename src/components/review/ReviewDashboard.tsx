@@ -13,6 +13,7 @@ import type { SeverityFilter } from "./group-by-apartado";
 import {
   filterConflictingPasses,
   isCritical,
+  isExpedienteLevelOnly,
   isInterannualStatOnly,
   isPass,
   isWarning,
@@ -59,9 +60,9 @@ export function ReviewDashboard({
   warnings,
 }: ReviewDashboardProps) {
   const filtered = filterConflictingPasses(validaciones);
-  const criticos = filtered.filter(isCritical).filter((v) => !isInterannualStatOnly(v.ruleId));
-  const advertencias = filtered.filter(isWarning).filter((v) => !isInterannualStatOnly(v.ruleId));
-  const superadas = filtered.filter(isPass).filter((v) => !isInterannualStatOnly(v.ruleId));
+  const criticos = filtered.filter(isCritical).filter((v) => !isInterannualStatOnly(v.ruleId) && !isExpedienteLevelOnly(v.ruleId));
+  const advertencias = filtered.filter(isWarning).filter((v) => !isInterannualStatOnly(v.ruleId) && !isExpedienteLevelOnly(v.ruleId));
+  const superadas = filtered.filter(isPass).filter((v) => !isInterannualStatOnly(v.ruleId) && !isExpedienteLevelOnly(v.ruleId));
   const byApartado = (memoriaSections?.length ?? 0) > 0;
   const [incidentFilter, setIncidentFilter] = useState<SeverityFilter>("all");
   const [scrollTick, setScrollTick] = useState(0);

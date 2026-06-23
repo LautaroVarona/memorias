@@ -3,6 +3,8 @@
 import { useMemo } from "react";
 import {
   buildLineComparison,
+  filterChangedLines,
+  hasContentDiff,
   tokenizeForHighlight,
   type ComparedLine,
   type LineDiffKind,
@@ -14,6 +16,8 @@ interface ApartadoMemoriaCompareProps {
   ejercicioAnterior?: number;
   ejercicioActual?: number;
   highlightQuery?: string;
+  /** Solo filas con cambios (sin líneas idénticas). */
+  diffsOnly?: boolean;
 }
 
 const ROW_STYLES: Record<LineDiffKind, { prior: string; current: string }> = {
@@ -105,12 +109,22 @@ function CompareGrid({
   priorLabel,
   currentLabel,
   highlightQuery,
+  emptyMessage,
 }: {
   lines: ComparedLine[];
   priorLabel: string;
   currentLabel: string;
   highlightQuery?: string;
+  emptyMessage?: string;
 }) {
+  if (lines.length === 0 && emptyMessage) {
+    return (
+      <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+        {emptyMessage}
+      </p>
+    );
+  }
+
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <CompareLegend />
@@ -143,11 +157,13 @@ export function ApartadoMemoriaCompare({
   ejercicioAnterior,
   ejercicioActual,
   highlightQuery,
+  diffsOnly = false,
 }: ApartadoMemoriaCompareProps) {
   const lines = useMemo(() => {
     if (!priorText?.trim() || !currentText?.trim()) return [];
-    return buildLineComparison(priorText, currentText);
-  }, [priorText, currentText]);
+    const all = buildLineComparison(priorText, currentText);
+    return diffsOnly ? filterChangedLines(all) : all;
+  }, [priorText, currentText, diffsOnly]);
 
   const priorLabel =
     ejercicioAnterior !== undefined ? `Memoria ${ejercicioAnterior}` : "Memoria año anterior";
@@ -177,7 +193,8 @@ export function ApartadoMemoriaCompare({
     );
   }
 
-  const soloEsperado = lines.length > 0 && lines.every((l) => l.kind === "unchanged" || l.kind === "expected");
+  const soloEsperado =
+    !diffsOnly && lines.length > 0 && lines.every((l) => l.kind === "unchanged" || l.kind === "expected");
 
   return (
     <div className="space-y-2">
@@ -191,6 +208,9 @@ export function ApartadoMemoriaCompare({
         priorLabel={priorLabel}
         currentLabel={currentLabel}
         highlightQuery={highlightQuery}
+        emptyMessage={
+          diffsOnly ? "Sin diferencias textuales respecto al año anterior." : undefined
+        }
       />
     </div>
   );
