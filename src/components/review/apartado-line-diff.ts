@@ -290,24 +290,24 @@ export function buildContentComparison(priorText: string, currentText: string): 
 
   if (priorSegs.length === 0 && currentSegs.length === 0) return [];
   if (priorSegs.length === 0) {
-    return currentSegs.flatMap((seg) => {
+    return currentSegs.flatMap((seg): ComparedBlock[] => {
       if (seg.type === "table") {
-        return [{ type: "table" as const, table: buildTableComparison("", tableSegmentToText(seg)) }];
+        return [{ type: "table", table: buildTableComparison("", tableSegmentToText(seg)) }];
       }
       return splitTextBlocks(seg.content).map((block) => ({
-        type: "text" as const,
-        line: { kind: "added" as const, prior: "", current: block },
+        type: "text",
+        line: { kind: "added", prior: "", current: block },
       }));
     });
   }
   if (currentSegs.length === 0) {
-    return priorSegs.flatMap((seg) => {
+    return priorSegs.flatMap((seg): ComparedBlock[] => {
       if (seg.type === "table") {
-        return [{ type: "table" as const, table: buildTableComparison(tableSegmentToText(seg), "") }];
+        return [{ type: "table", table: buildTableComparison(tableSegmentToText(seg), "") }];
       }
       return splitTextBlocks(seg.content).map((block) => ({
-        type: "text" as const,
-        line: { kind: "removed" as const, prior: block, current: "" },
+        type: "text",
+        line: { kind: "removed", prior: block, current: "" },
       }));
     });
   }
