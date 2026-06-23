@@ -1,5 +1,6 @@
 import type { ApartadoMemoria } from "@/types/domain";
 import type { ValidacionView } from "./types";
+import { apartadoSlug } from "@/lib/rules/helpers/text-normalize";
 import {
   extractApartadoFromEvidence,
   extractApartadoInfo,
@@ -18,6 +19,7 @@ export interface ApartadoReviewGroup {
   num: string;
   title?: string;
   contenido?: string;
+  contenidoAnterior?: string;
   status: ApartadoStatus;
   validations: ValidacionView[];
   counts: { critical: number; warning: number; pass: number };
@@ -62,9 +64,25 @@ function compareApartadoNum(a: string, b: string): number {
   return a.localeCompare(b, "es");
 }
 
+function findPriorSection(
+  current: ApartadoMemoria,
+  priorSections: ApartadoMemoria[]
+): ApartadoMemoria | undefined {
+  const slug = apartadoSlug(current);
+  if (current.numero !== undefined) {
+    const num = String(current.numero).padStart(2, "0");
+    const byNum = priorSections.find(
+      (s) => s.numero !== undefined && String(s.numero).padStart(2, "0") === num
+    );
+    if (byNum) return byNum;
+  }
+  return priorSections.find((s) => apartadoSlug(s) === slug);
+}
+
 export function buildApartadoGroups(
   sections: ApartadoMemoria[],
-  validaciones: ValidacionView[]
+  validaciones: ValidacionView[],
+  priorSections: ApartadoMemoria[] = []
 ): ApartadoReviewGroup[] {
   const filtered = filterConflictingPasses(validaciones).filter(
     (v) => !isInterannualStatOnly(v.ruleId)
@@ -74,10 +92,12 @@ export function buildApartadoGroups(
 
   for (const sec of sections) {
     const num = apartadoNumFromSection(sec);
+    const prior = findPriorSection(sec, priorSections);
     map.set(num, {
       num,
       title: sec.titulo,
       contenido: sec.contenido,
+      contenidoAnterior: prior?.contenido,
       status: "ok",
       validations: [],
       counts: { critical: 0, warning: 0, pass: 0 },

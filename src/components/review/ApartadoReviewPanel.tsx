@@ -14,6 +14,9 @@ import { subscribeMemoriaNavigate } from "./memoria-navigator";
 
 interface ApartadoReviewPanelProps {
   sections: ApartadoMemoria[];
+  priorSections?: ApartadoMemoria[];
+  ejercicio?: number;
+  ejercicioAnterior?: number;
   validaciones: ValidacionView[];
   filter: SeverityFilter;
   onFilterChange: (filter: SeverityFilter) => void;
@@ -29,6 +32,9 @@ const FILTER_OPTIONS: { id: SeverityFilter; label: string; activeClass: string }
 
 export function ApartadoReviewPanel({
   sections,
+  priorSections = [],
+  ejercicio,
+  ejercicioAnterior,
   validaciones,
   filter,
   onFilterChange,
@@ -39,8 +45,8 @@ export function ApartadoReviewPanel({
   const lastScrollTick = useRef(0);
 
   const groups = useMemo(
-    () => buildApartadoGroups(sections, validaciones),
-    [sections, validaciones]
+    () => buildApartadoGroups(sections, validaciones, priorSections),
+    [sections, validaciones, priorSections]
   );
   const statusCounts = useMemo(() => countApartadoStatuses(groups), [groups]);
   const visible = useMemo(() => filterApartadoGroups(groups, filter), [groups, filter]);
@@ -116,6 +122,8 @@ export function ApartadoReviewPanel({
             <ApartadoReviewSection
               key={group.num}
               group={group}
+              ejercicio={ejercicio}
+              ejercicioAnterior={ejercicioAnterior}
               defaultOpen={group.status !== "ok"}
               open={openSections[group.num]}
               onOpenChange={(next) =>

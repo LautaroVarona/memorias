@@ -4,13 +4,15 @@ import { useState } from "react";
 import type { ApartadoReviewGroup } from "./group-by-apartado";
 import { formatApartadoHeading } from "./group-by-apartado";
 import type { ValidacionView } from "./types";
+import { ApartadoMemoriaCompare } from "./ApartadoMemoriaCompare";
 import { IssueCard } from "./IssueCard";
-import { MemoriaContentRenderer } from "./MemoriaContentRenderer";
 import { SeverityBadge, severityBorderClass } from "./SeverityBadge";
 import { isCritical, isPass, isWarning } from "./parse-issue";
 
 interface ApartadoReviewSectionProps {
   group: ApartadoReviewGroup;
+  ejercicio?: number;
+  ejercicioAnterior?: number;
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -47,6 +49,8 @@ const STATUS_RING: Record<ApartadoReviewGroup["status"], string> = {
 
 export function ApartadoReviewSection({
   group,
+  ejercicio,
+  ejercicioAnterior,
   defaultOpen = true,
   open: controlledOpen,
   onOpenChange,
@@ -64,8 +68,9 @@ export function ApartadoReviewSection({
   const advertencias = group.validations.filter(isWarning);
   const superadas = group.validations.filter(isPass);
   const hasIssues = criticos.length > 0 || advertencias.length > 0;
-  const [showSource, setShowSource] = useState(false);
   const [showPasses, setShowPasses] = useState(false);
+  const hasCompare =
+    Boolean(group.contenido?.trim()) || Boolean(group.contenidoAnterior?.trim());
 
   return (
     <article
@@ -83,7 +88,7 @@ export function ApartadoReviewSection({
             <h2 className="text-sm font-semibold text-slate-900">{formatApartadoHeading(group)}</h2>
             <SeverityBadge level={group.status} />
           </div>
-          {hasIssues && (
+          {hasIssues ? (
             <p className="mt-1 text-[11px] text-slate-500">
               {group.counts.critical > 0 && (
                 <span className="font-medium text-red-600">
@@ -97,8 +102,7 @@ export function ApartadoReviewSection({
                 </span>
               )}
             </p>
-          )}
-          {!hasIssues && (
+          ) : (
             <p className="mt-1 text-[11px] text-emerald-600">Sin incidencias</p>
           )}
         </div>
@@ -108,7 +112,7 @@ export function ApartadoReviewSection({
       </button>
 
       {open && (
-        <div className="space-y-3 border-t border-slate-200/80 bg-white px-4 py-3">
+        <div className="space-y-4 border-t border-slate-200/80 bg-white px-4 py-4">
           {hasIssues && (
             <section className="space-y-2">
               {criticos.length > 0 && (
@@ -128,32 +132,18 @@ export function ApartadoReviewSection({
             </section>
           )}
 
-          {group.contenido !== undefined && (
-            <section className="border-t border-slate-100 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowSource(!showSource)}
-                className="flex w-full items-center justify-between text-left"
-              >
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                  Ver texto fuente de la memoria
-                </span>
-                <span className="text-[11px] font-medium text-slate-500">
-                  {showSource ? "Ocultar" : "Mostrar"}
-                </span>
-              </button>
-              {showSource && (
-                <div className="mt-2 max-h-96 overflow-y-auto rounded-md border border-slate-100 bg-slate-50/50 p-3">
-                  {group.contenido ? (
-                    <MemoriaContentRenderer
-                      content={group.contenido}
-                      highlightText={highlightText}
-                    />
-                  ) : (
-                    <p className="text-sm italic text-slate-400">Sin contenido detectado</p>
-                  )}
-                </div>
-              )}
+          {hasCompare && (
+            <section>
+              <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Comparativa con memoria anterior
+              </h3>
+              <ApartadoMemoriaCompare
+                priorText={group.contenidoAnterior}
+                currentText={group.contenido}
+                ejercicioAnterior={ejercicioAnterior}
+                ejercicioActual={ejercicio}
+                highlightQuery={highlightText}
+              />
             </section>
           )}
 

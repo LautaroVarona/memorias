@@ -147,9 +147,11 @@ export function ExpedienteDetailContent() {
   const errores = data.score?.errores ?? data.resumen.critical;
   const warnings = data.score?.warnings ?? data.resumen.warning;
   const memoriaSections = data.caseData?.memory?.sections ?? [];
+  const priorMemoriaSections = data.caseData?.priorYear?.memory?.sections ?? [];
+  const ejercicioAnterior = data.caseData?.priorYear?.ejercicio;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 pb-12">
+    <div className="mx-auto max-w-[min(100%,90rem)] space-y-8 px-4 pb-12 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link href="/" className="text-sm text-slate-500 hover:text-slate-800">
           ← Expedientes
@@ -234,6 +236,8 @@ export function ExpedienteDetailContent() {
           archivos={data.archivos}
           validaciones={data.validaciones as ValidacionView[]}
           memoriaSections={memoriaSections}
+          priorMemoriaSections={priorMemoriaSections}
+          ejercicioAnterior={ejercicioAnterior}
           score={data.score?.score}
           estado={data.score?.globalEstado ?? data.score?.estado}
           motivoGlobal={data.score?.motivoGlobal}
