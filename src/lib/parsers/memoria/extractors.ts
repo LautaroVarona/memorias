@@ -10,6 +10,7 @@ import type {
   CifrasMemoria,
   DatosClaveMemoria,
   FormalMemoria,
+  MemoriaBloque,
   TablaMemoria,
 } from "@/types/domain";
 import type {
@@ -239,6 +240,165 @@ export function extraerApartados(texto: string): ApartadoMemoria[] {
   }
 
   return apartados;
+}
+
+export function extraerApartadosDesdeBloques(bloques: MemoriaBloque[]): ApartadoMemoria[] {
+  const apartados: ApartadoMemoria[] = [];
+  const preambuloBloques: MemoriaBloque[] = [];
+  let current: ApartadoMemoria | null = null;
+  const numerosApartadoVistos = new Set<number>();
+  let maxNumeroApartado = 0;
+
+  const ensureCurrentBlocks = () => {
+    if (!current) return;
+    if (!current.bloques) current.bloques = [];
+  };
+
+  const appendBloque = (bloque: MemoriaBloque) => {
+    if (current) {
+      ensureCurrentBlocks();
+      const last = current.bloques![current.bloques!.length - 1];
+      if (bloque.type === "text" && last?.type === "text") {
+        last.content = [last.content, bloque.content].filter(Boolean).join("\n");
+      } else {
+        current.bloques!.push(bloque);
+      }
+    } else {
+      const last = preambuloBloques[preambuloBloques.length - 1];
+      if (bloque.type === "text" && last?.type === "text") {
+        last.content = [last.content, bloque.content].filter(Boolean).join("\n");
+      } else {
+        preambuloBloques.push(bloque);
+      }
+    }
+  };
+
+  const tryOpenHeading = (linea: string): boolean => {
+    const heading = parseMainApartadoHeading(linea);
+    if (!heading || linea.includes("|")) return false;
+    const esApartadoPrincipal =
+      !numerosApartadoVistos.has(heading.numero) || heading.numero > maxNumeroApartado;
+    if (!esApartadoPrincipal) return false;
+
+    if (current) apartados.push(current);
+    numerosApartadoVistos.add(heading.numero);
+    maxNumeroApartado = Math.max(maxNumeroApartado, heading.numero);
+    current = {
+      id: String(heading.numero).padStart(2, "0"),
+      titulo: heading.titulo,
+      contenido: "",
+      bloques: [],
+      obligatorio: esObligatorio(heading.titulo),
+      numero: heading.numero,
+    };
+    return true;
+  };
+
+  for (const bloque of bloques) {
+    if (bloque.type === "text") {
+      const lineas = bloque.content.split(/\n/);
+      for (const lineaRaw of lineas) {
+        const linea = lineaRaw.trim();
+        if (!linea) continue;
+        if (!tryOpenHeading(linea)) {
+          appendBloque({ type: "text", content: linea });
+        }
+      }
+    } else {
+      appendBloque({ type: "table", content: bloque.content.map((fila) => [...fila]) });
+    }
+  }
+
+  if (current) apartados.push(current);
+
+  const consolidarContenido = (target: ApartadoMemoria, bloquesFuente: MemoriaBloque[]) => {
+    const propios = [...(target.bloques ?? []), ...bloquesFuente];
+    target.bloques = propios;
+    target.contenido = propios
+      .map((b) => (b.type === "text" ? b.content : b.content.map((fila) => fila.join(" | ")).join("\n")))
+      .filter(Boolean)
+      .join("\n");
+  };
+
+  if (apartados.length === 0) {
+    const unico: ApartadoMemoria = {
+      id: "sec-1",
+      titulo: "Documento completo",
+      contenido: "",
+      bloques: [],
+      obligatorio: false,
+    };
+    consolidarContenido(unico, [...preambuloBloques]);
+    return [unico];
+  }
+
+  for (const apartado of apartados) {
+    consolidarContenido(apartado, []);
+  }
+
+  if (preambuloBloques.length > 0) {
+    const primer = apartados[0];
+    const existentes = primer.bloques ?? [];
+    primer.bloques = [...preambuloBloques, ...existentes];
+    primer.contenido = primer.bloques
+      .map((b) => (b.type === "text" ? b.content : b.content.map((fila) => fila.join(" | ")).join("\n")))
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return apartados;
+}
+
+export function extraerTablasDesdeBloques(
+  bloques: MemoriaBloque[],
+  textoCompletoFallback: string
+): TablaMemoria[] {
+  const tablas: TablaMemoria[] = [];
+  let apartadoActual: string | undefined;
+  let tituloPrevio = "";
+  let linea = 1;
+
+  for (const bloque of bloques) {
+    if (bloque.type === "text") {
+      const lineas = bloque.content.split(/\n/).map((l) => l.trim());
+      for (const l of lineas) {
+        if (!l) {
+          linea += 1;
+          continue;
+        }
+        const heading = parseMainApartadoHeading(l);
+        if (heading) apartadoActual = String(heading.numero).padStart(2, "0");
+        tituloPrevio = l;
+        linea += 1;
+      }
+      continue;
+    }
+
+    const filas = bloque.content
+      .map((fila) =>
+        fila
+          .map((c) => c.replace(/[\u0000-\u001F\u007F]/g, "").trim())
+          .filter((_, idx, arr) => !(idx === arr.length - 1 && arr[idx] === ""))
+      )
+      .filter((fila) => fila.some((c) => c.length > 0));
+    if (filas.length === 0) continue;
+
+    const cabecera = filas[0];
+    const datos = filas.length > 1 ? filas.slice(1) : [];
+    const vacia = tablaEstaVacia(cabecera, datos);
+    tablas.push({
+      apartado: apartadoActual,
+      titulo: tituloPrevio,
+      cabecera,
+      filas: datos,
+      vacia,
+      linea,
+      pagina: lineaToPagina(textoCompletoFallback, linea),
+    });
+    linea += filas.length;
+  }
+
+  return tablas;
 }
 
 /**

@@ -67,9 +67,22 @@ export interface ApartadoMemoria {
   id: string;
   titulo: string;
   contenido: string;
+  bloques?: MemoriaBloque[];
   obligatorio: boolean;
   /** Número de apartado si la memoria usa la numeración canónica "NN Título" */
   numero?: number;
+}
+
+export type MemoriaBloque = MemoriaTextBlock | MemoriaTableBlock;
+
+export interface MemoriaTextBlock {
+  type: "text";
+  content: string;
+}
+
+export interface MemoriaTableBlock {
+  type: "table";
+  content: string[][];
 }
 
 export interface TablaMemoria {

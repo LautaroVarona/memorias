@@ -4,13 +4,16 @@ import {
   analizarFormal,
   contarPaginasPdf,
   extraerApartados,
+  extraerApartadosDesdeBloques,
   extraerAniosMencionados,
   extraerCifras,
   extraerDatosClave,
   extraerStatements,
   extraerTablas,
+  extraerTablasDesdeBloques,
 } from "./extractors";
-import { esRtf, extraerTextoRtf, extraerTablasRtf, tablasRtfATexto } from "./rtf";
+import { esRtf, extraerBloquesRtf, extraerTextoRtf } from "./rtf";
+import type { MemoriaBloque } from "@/types/domain";
 
 export type FormatoMemoria = "rtf" | "doc_binario" | "docx" | "pdf";
 
@@ -105,23 +108,10 @@ function normalizarTexto(texto: string): string {
     .join("\n");
 }
 
-function enriquecerTextoRtfConTablas(buffer: Buffer, texto: string): string {
-  const tablas = extraerTablasRtf(buffer);
-  if (tablas.length === 0) return texto;
-  const volcadoTablas = tablasRtfATexto(tablas);
-  if (!volcadoTablas.trim()) return texto;
-  // Las tablas ya presentes en el volcado textual no se duplican
-  const lineasTabla = volcadoTablas.split("\n").filter((l) => l.includes("|"));
-  const faltantes = lineasTabla.filter((linea) => !texto.includes(linea.slice(0, Math.min(60, linea.length))));
-  if (faltantes.length === 0) return texto;
-  return `${texto}\n\n${faltantes.join("\n")}`;
-}
-
 async function extraerTexto(buffer: Buffer, formato: FormatoMemoria): Promise<{ texto: string; paginas: number }> {
   switch (formato) {
     case "rtf": {
-      const textoRtf = extraerTextoRtf(buffer);
-      const texto = enriquecerTextoRtfConTablas(buffer, textoRtf);
+      const texto = extraerTextoRtf(buffer);
       return { texto, paginas: Math.max(1, Math.ceil(texto.length / 3000)) };
     }
     case "doc_binario": {
@@ -154,9 +144,21 @@ export async function parseMemoria(
   const formato = detectarFormatoMemoria(buffer) ?? (tipo === "memoria_pdf" ? "pdf" : "docx");
   const { texto: bruto, paginas } = await extraerTexto(buffer, formato);
   const texto = normalizarTexto(bruto);
+  const bloquesDocumento: MemoriaBloque[] =
+    formato === "rtf"
+      ? extraerBloquesRtf(buffer).map((b) =>
+          b.type === "text"
+            ? { type: "text", content: normalizarTexto(b.content) }
+            : {
+                type: "table",
+                content: b.content.map((fila) => fila.map((celda) => limpiarCeldaTabular(celda))),
+              }
+        )
+      : [{ type: "text", content: texto }];
 
-  const apartados = extraerApartados(texto);
-  const tablas = extraerTablas(texto);
+  const apartados = bloquesDocumento.length > 0 ? extraerApartadosDesdeBloques(bloquesDocumento) : extraerApartados(texto);
+  const tablas =
+    bloquesDocumento.length > 0 ? extraerTablasDesdeBloques(bloquesDocumento, texto) : extraerTablas(texto);
   const cifras = extraerCifras(texto);
   const statements = extraerStatements(texto);
   const formal = analizarFormal(texto);

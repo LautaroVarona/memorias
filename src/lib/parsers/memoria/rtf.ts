@@ -94,6 +94,10 @@ export interface RtfTablaExtraida {
   filas: string[][];
 }
 
+export type RtfBloque =
+  | { type: "text"; content: string }
+  | { type: "table"; content: string[][] };
+
 /**
  * Reconstruye tablas RTF detectando explícitamente \\trowd, \\cell y \\row.
  * Complementa el volcado textual para tablas con celdas en líneas separadas.
@@ -319,4 +323,171 @@ export function extraerTextoRtf(buffer: Buffer): string {
     .map((l) => l.replace(/[ \t]+/g, " ").trimEnd())
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * Extrae bloques inline en orden estricto de aparición.
+ * Mantiene tablas como entidades independientes y respeta columnas por \\cell/\\u0007.
+ */
+export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
+  const s = buffer.toString("latin1");
+  const bloques: RtfBloque[] = [];
+  let i = 0;
+  let depth = 0;
+  let skipUntil = -1;
+  let pendingUnicodeFallbackSkip = false;
+
+  let textBuffer = "";
+  let celdaActual = "";
+  let filaActual: string[] = [];
+  let tablaActual: string[][] = [];
+  let filaActiva = false;
+
+  const limpiarCelda = (raw: string) => raw.replace(/[\u0000-\u001F\u007F]/g, "").replace(/\s+/g, " ").trim();
+
+  const flushText = () => {
+    const content = textBuffer
+      .split("\n")
+      .map((l) => l.replace(/[ \t]+/g, " ").trimEnd())
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    if (content) {
+      bloques.push({ type: "text", content });
+    }
+    textBuffer = "";
+  };
+
+  const flushTable = () => {
+    if (tablaActual.length > 0) {
+      const normalizada = tablaActual
+        .map((fila) => fila.map(limpiarCelda))
+        .filter((fila) => fila.some((c) => c.length > 0));
+      if (normalizada.length > 0) {
+        bloques.push({ type: "table", content: normalizada });
+      }
+    }
+    tablaActual = [];
+  };
+
+  const flushCelda = () => {
+    filaActual.push(celdaActual);
+    celdaActual = "";
+  };
+
+  const flushFila = () => {
+    if (celdaActual.length > 0 || filaActual.length > 0) flushCelda();
+    if (filaActual.some((c) => limpiarCelda(c).length > 0)) {
+      tablaActual.push([...filaActual]);
+    }
+    filaActual = [];
+    celdaActual = "";
+    filaActiva = false;
+  };
+
+  const appendText = (value: string) => {
+    if (tablaActual.length > 0 && !filaActiva) {
+      flushTable();
+    }
+    textBuffer += value;
+  };
+
+  while (i < s.length) {
+    const c = s[i];
+
+    if (pendingUnicodeFallbackSkip) {
+      pendingUnicodeFallbackSkip = false;
+      i++;
+      continue;
+    }
+
+    if (c === "{") {
+      depth++;
+      i++;
+      continue;
+    }
+    if (c === "}") {
+      if (skipUntil === depth) skipUntil = -1;
+      depth--;
+      i++;
+      continue;
+    }
+    if (skipUntil !== -1 && depth >= skipUntil) {
+      i++;
+      continue;
+    }
+
+    if (c === "\\") {
+      const next = s[i + 1];
+      if (next === "'") {
+        const decoded = String.fromCharCode(parseInt(s.substr(i + 2, 2), 16));
+        if (filaActiva) celdaActual += decoded;
+        else appendText(decoded);
+        i += 4;
+        continue;
+      }
+      if (next === "*") {
+        const m = /^\\\*\\([a-zA-Z]+)/.exec(s.slice(i));
+        if (m) {
+          skipUntil = depth;
+          i += m[0].length;
+          continue;
+        }
+      }
+
+      const m = /^\\([a-zA-Z]+)(-?\d+)? ?/.exec(s.slice(i));
+      if (m) {
+        const word = m[1];
+        if (DESTINATIONS_TO_SKIP.has(word)) {
+          skipUntil = depth;
+        } else if (word === "trowd") {
+          if (textBuffer.trim()) flushText();
+          filaActiva = true;
+          celdaActual = "";
+          filaActual = [];
+        } else if (word === "cell" || word === "nestcell") {
+          if (filaActiva) flushCelda();
+        } else if (word === "row" || word === "nestrow") {
+          flushFila();
+        } else if (word === "par" || word === "line") {
+          if (filaActiva) celdaActual += " ";
+          else appendText("\n");
+        } else if (word === "tab") {
+          if (filaActiva) celdaActual += "\t";
+          else appendText("\t");
+        } else if (word === "u" && m[2]) {
+          const code = parseInt(m[2], 10);
+          const decoded = String.fromCharCode(code < 0 ? code + 65536 : code);
+          if (filaActiva) celdaActual += decoded;
+          else appendText(decoded);
+          pendingUnicodeFallbackSkip = true;
+        } else if (word === "pard" && tablaActual.length > 0 && !filaActiva) {
+          flushTable();
+        }
+        i += m[0].length;
+        continue;
+      }
+
+      const escaped = s[i + 1] ?? "";
+      if (filaActiva) celdaActual += escaped;
+      else appendText(escaped);
+      i += 2;
+      continue;
+    }
+
+    if (c === "\n" || c === "\r") {
+      i++;
+      continue;
+    }
+
+    if (filaActiva) celdaActual += c;
+    else appendText(c);
+    i++;
+  }
+
+  flushFila();
+  flushTable();
+  flushText();
+
+  return bloques;
 }
