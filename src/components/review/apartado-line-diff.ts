@@ -383,8 +383,8 @@ export function buildLineComparison(priorText: string, currentText: string): Com
     if (block.type === "text") return [block.line];
     return block.table.rows.map((row) => ({
       kind: row.kind,
-      prior: row.cells.map((c) => c.prior).filter(Boolean).join(" | ") || row.label,
-      current: row.cells.map((c) => c.current).filter(Boolean).join(" | ") || row.label,
+      prior: (row.prior ?? []).join(" | "),
+      current: (row.current ?? []).join(" | "),
     }));
   });
 }

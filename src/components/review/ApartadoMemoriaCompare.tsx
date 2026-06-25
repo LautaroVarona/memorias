@@ -11,8 +11,7 @@ import {
   type ComparedLine,
   type LineDiffKind,
 } from "./apartado-line-diff";
-import type { ComparedTable, ComparedTableCell } from "./apartado-table-diff";
-import { cellLooksNumeric } from "./parse-pipe-table";
+import type { ComparedTable } from "./apartado-table-diff";
 
 interface ApartadoMemoriaCompareProps {
   priorText?: string;
@@ -38,14 +37,6 @@ const TEXT_ROW_BG_EMPHASIZED: Record<LineDiffKind, { prior: string; current: str
   structural: { prior: "bg-red-100/60", current: "bg-red-100/60" },
   removed: { prior: "bg-red-100/80", current: "" },
   added: { prior: "", current: "bg-red-100/80" },
-};
-
-const CELL_KIND_BG: Record<LineDiffKind, string> = {
-  unchanged: "",
-  expected: "bg-blue-50/70",
-  structural: "bg-red-50/70",
-  removed: "bg-red-50/80",
-  added: "bg-red-50/80",
 };
 
 const CHAR_MARK: Record<CharDiffSegment["kind"], string> = {
@@ -153,31 +144,13 @@ function DiffRow({
   );
 }
 
-function TableCellValue({ cell, side }: { cell: ComparedTableCell; side: "prior" | "current" }) {
-  const text = side === "prior" ? cell.prior : cell.current;
-  if (!text) return <span className="text-slate-300">—</span>;
+/** Columna divisoria central: línea vertical fuerte entre memoria anterior y actual. */
+const DIVIDER_CELL = "w-0 border-l-[3px] border-slate-400/90 p-0";
 
-  if (cell.kind === "expected") {
-    return (
-      <span>
-        {tokenizeForHighlight(text).map((p, i) =>
-          p.expected ? (
-            <mark key={i} className="rounded-sm bg-blue-200/80 px-px font-medium text-blue-950">
-              {p.text}
-            </mark>
-          ) : (
-            <span key={i}>{p.text}</span>
-          )
-        )}
-      </span>
-    );
-  }
-
-  if (cell.kind !== "unchanged") {
-    return <span className="font-medium text-red-900">{text}</span>;
-  }
-
-  return <span>{text}</span>;
+function padCells(cells: string[] | null, n: number): string[] {
+  const out = [...(cells ?? [])];
+  while (out.length < n) out.push("");
+  return out;
 }
 
 function MemoriaCompareTable({
@@ -191,92 +164,75 @@ function MemoriaCompareTable({
   currentLabel: string;
   emphasizeStructural?: boolean;
 }) {
-  if (table.columns.length === 0 && table.rows.length === 0) return null;
+  const { priorHeader, currentHeader, priorCols, currentCols, priorSharedCol, currentSharedCol, rows } =
+    table;
+  if (rows.length === 0 && priorHeader.length === 0 && currentHeader.length === 0) return null;
+
+  const rowBg = (kind: typeof rows[number]["kind"]): string => {
+    if (kind === "structural") return emphasizeStructural ? "bg-red-100/70" : "bg-red-50/60";
+    if (kind === "removed" || kind === "added") return "bg-red-50/50";
+    return "";
+  };
+
+  const colAlign = (i: number) => (i === 0 ? "text-left" : "text-right font-mono tabular-nums");
+
+  const renderSide = (
+    cells: string[] | null,
+    cols: number,
+    sharedCol: number | null,
+    kind: typeof rows[number]["kind"],
+    keyPrefix: string
+  ) =>
+    padCells(cells, cols).map((cell, ci) => {
+      const highlight = kind === "structural" && ci === sharedCol;
+      const missing = cells === null;
+      return (
+        <td
+          key={`${keyPrefix}-${ci}`}
+          className={`whitespace-nowrap px-3 py-1.5 ${colAlign(ci)} ${
+            ci === 0 ? "font-medium text-slate-700" : "text-slate-800"
+          } ${highlight ? "font-semibold text-red-700" : ""}`}
+        >
+          {missing ? <span className="text-slate-300">—</span> : cell || (ci === 0 ? "" : "")}
+        </td>
+      );
+    });
 
   return (
-    <div className="my-6 overflow-x-auto">
-      <table className="w-full min-w-[16rem] border-collapse border border-slate-200 text-xs">
+    <div className="my-5 overflow-x-auto rounded-lg border border-slate-200">
+      <table className="w-full border-collapse text-xs">
         <thead>
-          <tr className="border-b border-slate-200 bg-slate-100/80">
-            {table.columns.map((col) => (
-              <th
-                key={col.key}
-                colSpan={col.key === "label" ? 1 : 2}
-                className="border-l border-slate-200 px-2 py-1.5 font-medium text-slate-600 first:border-l-0"
-              >
-                <div className="text-center">
-                  {col.headerPrior && col.headerCurrent && col.headerPrior !== col.headerCurrent ? (
-                    <>
-                      <span className="text-slate-500">{col.headerPrior}</span>
-                      <span className="mx-1 text-slate-300">→</span>
-                      <span>{col.headerCurrent}</span>
-                    </>
-                  ) : (
-                    col.headerPrior || col.headerCurrent || "—"
-                  )}
-                </div>
-                {col.key !== "label" && (
-                  <div className="mt-1 grid grid-cols-2 gap-px text-[9px] font-normal uppercase tracking-wide text-slate-400">
-                    <span className="text-center">{priorLabel}</span>
-                    <span className="border-l border-slate-200 text-center">{currentLabel}</span>
-                  </div>
-                )}
+          <tr className="bg-slate-50 text-[10px] font-semibold uppercase tracking-wide">
+            <th colSpan={priorCols} className="px-3 py-1.5 text-left text-slate-500">
+              {priorLabel}
+            </th>
+            <th className={DIVIDER_CELL} aria-hidden />
+            <th colSpan={currentCols} className="px-3 py-1.5 text-left text-blue-900">
+              {currentLabel}
+            </th>
+          </tr>
+          <tr className="border-y border-slate-200 bg-slate-100/70 font-semibold text-slate-700">
+            {padCells(priorHeader, priorCols).map((h, i) => (
+              <th key={`ph-${i}`} className={`px-3 py-1.5 ${i === 0 ? "text-left" : "text-right"}`}>
+                {h}
+              </th>
+            ))}
+            <th className={DIVIDER_CELL} aria-hidden />
+            {padCells(currentHeader, currentCols).map((h, i) => (
+              <th key={`ch-${i}`} className={`px-3 py-1.5 ${i === 0 ? "text-left" : "text-right"}`}>
+                {h}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {table.rows.map((row, ri) => {
-            const rowEmphasis =
-              emphasizeStructural &&
-              (row.kind === "structural" || row.kind === "removed" || row.kind === "added");
-            return (
-              <tr
-                key={ri}
-                className={`border-b border-slate-100 last:border-0 ${
-                  rowEmphasis ? "bg-red-50/30" : row.kind === "expected" ? "bg-blue-50/20" : ""
-                }`}
-              >
-                {row.cells.map((cell, ci) => {
-                  const col = table.columns[ci];
-                  const isLabelCol = col?.key === "label";
-                  const numeric =
-                    !isLabelCol &&
-                    (cellLooksNumeric(cell.prior) || cellLooksNumeric(cell.current));
-                  const cellAlign = isLabelCol
-                    ? "text-left text-slate-700 font-medium"
-                    : numeric
-                      ? "text-right font-mono tabular-nums text-slate-800"
-                      : "text-right text-slate-600";
-
-                  if (isLabelCol) {
-                    const labelText = cell.current || cell.prior || row.label;
-                    return (
-                      <td
-                        key={`${ri}-${ci}`}
-                        className={`px-2 py-1 ${CELL_KIND_BG[cell.kind]} ${cellAlign}`}
-                      >
-                        {labelText || "—"}
-                      </td>
-                    );
-                  }
-
-                  return (
-                    <td key={`${ri}-${ci}`} colSpan={2} className="p-0">
-                      <div className={`grid grid-cols-2 ${CELL_KIND_BG[cell.kind]}`}>
-                        <div className={`px-2 py-1 ${cellAlign}`}>
-                          <TableCellValue cell={cell} side="prior" />
-                        </div>
-                        <div className={`border-l border-dashed border-slate-200 px-2 py-1 ${cellAlign}`}>
-                          <TableCellValue cell={cell} side="current" />
-                        </div>
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
+          {rows.map((row, ri) => (
+            <tr key={ri} className={`border-b border-slate-100 last:border-0 ${rowBg(row.kind)}`}>
+              {renderSide(row.prior, priorCols, priorSharedCol, row.kind, `p${ri}`)}
+              <td className={DIVIDER_CELL} aria-hidden />
+              {renderSide(row.current, currentCols, currentSharedCol, row.kind, `c${ri}`)}
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

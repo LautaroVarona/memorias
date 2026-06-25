@@ -1,35 +1,30 @@
 import { parseImporte } from "@/lib/parsers/memoria/extractors";
 import { compareWithTolerance } from "@/lib/rules/helpers/accounts";
-import {
-  normalizarTextoApartado,
-  normalizarTextoComparacionInteranual,
-} from "@/lib/rules/helpers/text-normalize";
+import { normalizarTextoApartado } from "@/lib/rules/helpers/text-normalize";
 import type { LineDiffKind } from "./apartado-line-diff";
 import { parseTableRow } from "./parse-pipe-table";
 
-export interface AlignedColumn {
-  key: string;
-  headerPrior: string;
-  headerCurrent: string;
-  priorIndex: number | null;
-  currentIndex: number | null;
-}
-
-export interface ComparedTableCell {
+/** Fila comparada lado a lado: celdas verbatim de cada memoria (null si la fila no existe). */
+export interface SideBySideRow {
   kind: LineDiffKind;
-  prior: string;
-  current: string;
+  prior: string[] | null;
+  current: string[] | null;
 }
 
-export interface ComparedTableRow {
-  kind: LineDiffKind;
-  label: string;
-  cells: ComparedTableCell[];
-}
-
+/**
+ * Comparación de una tabla mostrada TAL CUAL en cada memoria (sin fusionar
+ * columnas): se conservan las cabeceras y celdas originales de cada ejercicio y
+ * solo se alinean las filas por etiqueta para poder pintarlas en paralelo.
+ */
 export interface ComparedTable {
-  columns: AlignedColumn[];
-  rows: ComparedTableRow[];
+  priorHeader: string[];
+  currentHeader: string[];
+  priorCols: number;
+  currentCols: number;
+  /** Columna del año compartido (continuidad interanual) en cada memoria, si existe. */
+  priorSharedCol: number | null;
+  currentSharedCol: number | null;
+  rows: SideBySideRow[];
 }
 
 /** Elimina saltos de página, espacios no separables y ruido estructural en celdas. */
@@ -48,26 +43,6 @@ function normalizarEtiquetaFila(label: string): string {
     .trim();
 }
 
-/** Clave semántica de columna: año, etiqueta o slug del encabezado. */
-export function claveColumnaTabla(header: string, colIndex: number): string {
-  const norm = normalizarTextoApartado(limpiarCeldaTabla(header));
-  const yearMatch = norm.match(/\b(19|20)\d{2}\b/);
-  if (yearMatch) return `year:${yearMatch[0]}`;
-
-  if (
-    colIndex === 0 ||
-    /^(concepto|denominacion|descripcion|movimientos|partida|detalle)\b/.test(norm)
-  ) {
-    return "label";
-  }
-
-  const slug = norm
-    .replace(/\b(19|20)\d{2}\b/g, "")
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_|_$/g, "");
-  return slug ? `col:${slug}` : `col:extra_${colIndex}`;
-}
-
 function parseRowsFromText(text: string): string[][] {
   return text
     .split("\n")
@@ -77,13 +52,13 @@ function parseRowsFromText(text: string): string[][] {
     .filter((row) => row.length > 0);
 }
 
+/** Fila de cabecera anual ("… | 2024 | 2023" o "… | IMPORTE 2024 | …"). */
 function esFilaCabeceraAnual(cells: string[]): boolean {
-  const joined = cells.join(" ").toLowerCase();
-  if (/importe\s+20\d{2}/.test(joined) && cells.filter((c) => parseImporte(c) !== null).length === 0) {
-    return true;
-  }
-  const label = (cells[0] ?? "").toLowerCase();
-  return /^movimientos\s/.test(label) && /importe\s+20\d{2}/.test(joined);
+  const rest = cells.slice(1).filter((c) => c.length > 0);
+  if (rest.length === 0) return false;
+  return rest.every(
+    (c) => /^(19|20)\d{2}$/.test(c) || /\bimporte\s+(19|20)\d{2}\b/i.test(c)
+  );
 }
 
 /** Dos cifras son equivalentes si el valor numérico coincide (ignora formato y espacios). */
@@ -94,85 +69,22 @@ export function cifrasEquivalentes(a: string, b: string, tolerancia = 0.005): bo
   return false;
 }
 
-/** Cambio solo de cifras o años en una celda, no de redacción. */
-function isSoloCambioCelda(prior: string, current: string): boolean {
-  if (prior === current) return false;
-  return normalizarTextoComparacionInteranual(prior) === normalizarTextoComparacionInteranual(current);
+function yearsInHeader(header: string[]): number[] {
+  return header.slice(1).flatMap((c) => {
+    const m = c.match(/\b(19|20)\d{2}\b/);
+    return m ? [parseInt(m[0], 10)] : [];
+  });
 }
 
-function classifyCell(prior: string, current: string): LineDiffKind {
-  const p = limpiarCeldaTabla(prior);
-  const c = limpiarCeldaTabla(current);
-
-  if (p === c) return "unchanged";
-  if (!p && !c) return "unchanged";
-  if (cifrasEquivalentes(p, c)) return "unchanged";
-
-  if (!p && c) return "added";
-  if (p && !c) return "removed";
-
-  if (isSoloCambioCelda(p, c)) return "expected";
-
-  const pn = parseImporte(p);
-  const cn = parseImporte(c);
-  if (pn !== null && cn !== null) return "expected";
-
-  return "structural";
-}
-
-const SEVERITY: Record<LineDiffKind, number> = {
-  unchanged: 0,
-  expected: 1,
-  added: 2,
-  removed: 2,
-  structural: 3,
-};
-
-function worstKind(kinds: LineDiffKind[]): LineDiffKind {
-  return kinds.reduce(
-    (worst, k) => (SEVERITY[k] > SEVERITY[worst] ? k : worst),
-    "unchanged" as LineDiffKind
-  );
-}
-
-/** Alinea columnas de dos tablas por clave semántica (año, etiqueta, nombre). */
-export function alinearColumnasTabla(
-  priorHeader: string[],
-  currentHeader: string[]
-): AlignedColumn[] {
-  const columns: AlignedColumn[] = [];
-  const seen = new Set<string>();
-
-  for (let i = 0; i < priorHeader.length; i++) {
-    const key = claveColumnaTabla(priorHeader[i], i);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const currentIdx = currentHeader.findIndex((h, j) => claveColumnaTabla(h, j) === key);
-    columns.push({
-      key,
-      headerPrior: priorHeader[i],
-      headerCurrent: currentIdx >= 0 ? currentHeader[currentIdx] : "",
-      priorIndex: i,
-      currentIndex: currentIdx >= 0 ? currentIdx : null,
-    });
+function yearColIndex(header: string[], year: number): number | null {
+  for (let i = 1; i < header.length; i++) {
+    const m = header[i].match(/\b(19|20)\d{2}\b/);
+    if (m && parseInt(m[0], 10) === year) return i;
   }
-
-  for (let j = 0; j < currentHeader.length; j++) {
-    const key = claveColumnaTabla(currentHeader[j], j);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    columns.push({
-      key,
-      headerPrior: "",
-      headerCurrent: currentHeader[j],
-      priorIndex: null,
-      currentIndex: j,
-    });
-  }
-
-  return columns;
+  return null;
 }
 
+/** Alinea filas de cuerpo por etiqueta (LCS); las no emparejadas quedan como []. */
 function alignRows(
   priorBody: string[][],
   currentBody: string[][]
@@ -186,9 +98,7 @@ function alignRows(
 
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      const match =
-        priorLabels[i] === currentLabels[j] &&
-        priorLabels[i].length >= 3;
+      const match = priorLabels[i] === currentLabels[j] && priorLabels[i].length >= 3;
       dp[i][j] = match ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
@@ -198,12 +108,7 @@ function alignRows(
   let j = 0;
 
   while (i < n || j < m) {
-    if (
-      i < n &&
-      j < m &&
-      priorLabels[i] === currentLabels[j] &&
-      priorLabels[i].length >= 3
-    ) {
+    if (i < n && j < m && priorLabels[i] === currentLabels[j] && priorLabels[i].length >= 3) {
       pairs.push({ prior: priorBody[i], current: currentBody[j] });
       i++;
       j++;
@@ -219,51 +124,56 @@ function alignRows(
   return pairs;
 }
 
-function getCell(row: string[], index: number | null): string {
-  if (index === null || index < 0) return "";
-  return limpiarCeldaTabla(row[index] ?? "");
-}
-
 /**
- * Compara dos bloques de tabla alineando columnas por semántica (no por índice).
- * Las columnas adicionales de un ejercicio no desplazan las equivalentes.
+ * Compara dos bloques de tabla preservando la estructura original de cada
+ * ejercicio. Las filas se alinean por etiqueta; la clasificación de "ruptura"
+ * se basa en la columna del año compartido (p. ej. la columna 2024 debe
+ * coincidir entre la memoria 2024 y la memoria 2025).
  */
 export function buildTableComparison(priorText: string, currentText: string): ComparedTable {
   const priorRows = parseRowsFromText(priorText);
   const currentRows = parseRowsFromText(currentText);
 
-  if (priorRows.length === 0 && currentRows.length === 0) {
-    return { columns: [], rows: [] };
-  }
+  const priorHeader = priorRows[0] ?? [];
+  const currentHeader = currentRows[0] ?? [];
+  const priorBody = priorRows.slice(1).filter((r) => !esFilaCabeceraAnual(r));
+  const currentBody = currentRows.slice(1).filter((r) => !esFilaCabeceraAnual(r));
 
-  const [priorHeader, ...priorBody] = priorRows.length > 0 ? priorRows : [[]];
-  const [currentHeader, ...currentBody] = currentRows.length > 0 ? currentRows : [[]];
+  const compartidos = yearsInHeader(priorHeader).filter((y) =>
+    yearsInHeader(currentHeader).includes(y)
+  );
+  const sharedYear = compartidos.length > 0 ? Math.max(...compartidos) : null;
+  const priorSharedCol = sharedYear !== null ? yearColIndex(priorHeader, sharedYear) : null;
+  const currentSharedCol = sharedYear !== null ? yearColIndex(currentHeader, sharedYear) : null;
 
-  const priorBodyFiltered = priorBody.filter((r) => !esFilaCabeceraAnual(r));
-  const currentBodyFiltered = currentBody.filter((r) => !esFilaCabeceraAnual(r));
+  const rows: SideBySideRow[] = alignRows(priorBody, currentBody).map(({ prior, current }) => {
+    const hasPrior = prior.length > 0;
+    const hasCurrent = current.length > 0;
 
-  const columns = alinearColumnasTabla(priorHeader, currentHeader);
-  const rowPairs = alignRows(priorBodyFiltered, currentBodyFiltered);
+    let kind: LineDiffKind = "unchanged";
+    if (hasPrior && !hasCurrent) kind = "removed";
+    else if (!hasPrior && hasCurrent) kind = "added";
+    else if (priorSharedCol !== null && currentSharedCol !== null) {
+      const pv = prior[priorSharedCol] ?? "";
+      const cv = current[currentSharedCol] ?? "";
+      if (pv.trim() && cv.trim() && !cifrasEquivalentes(pv, cv)) kind = "structural";
+    }
 
-  const rows: ComparedTableRow[] = rowPairs.map(({ prior, current }) => {
-    const cells: ComparedTableCell[] = columns.map((col) => {
-      const priorVal = getCell(prior, col.priorIndex);
-      const currentVal = getCell(current, col.currentIndex);
-      return {
-        kind: classifyCell(priorVal, currentVal),
-        prior: priorVal,
-        current: currentVal,
-      };
-    });
-
-    const label = current[0]?.trim() || prior[0]?.trim() || "";
-    const cellKinds = cells.map((c) => c.kind);
-    const rowKind = worstKind(cellKinds);
-
-    return { kind: rowKind, label, cells };
+    return { kind, prior: hasPrior ? prior : null, current: hasCurrent ? current : null };
   });
 
-  return { columns, rows };
+  const priorCols = Math.max(priorHeader.length, ...priorBody.map((r) => r.length), 1);
+  const currentCols = Math.max(currentHeader.length, ...currentBody.map((r) => r.length), 1);
+
+  return {
+    priorHeader,
+    currentHeader,
+    priorCols,
+    currentCols,
+    priorSharedCol,
+    currentSharedCol,
+    rows,
+  };
 }
 
 export function tableHasChanges(table: ComparedTable): boolean {
