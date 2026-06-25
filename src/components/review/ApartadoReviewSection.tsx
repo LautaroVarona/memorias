@@ -108,25 +108,17 @@ export function ApartadoReviewSection({
   );
   const emphasizeMemoriaDiff = hasStructuralDiff || hasMemoriaRuleIssue;
 
-  const articleRing = emphasizeMemoriaDiff
-    ? "ring-1 ring-red-300/60"
-    : group.memoriaDiff.hasDiff
-      ? "ring-1 ring-blue-200/80"
-      : "";
-
   return (
     <article
       id={group.num === "general" ? "apartado-general" : `apartado-${group.num}`}
       data-apartado={group.num === "general" ? undefined : group.num}
       data-memoria-diff={emphasizeMemoriaDiff ? "structural" : group.memoriaDiff.hasDiff ? "expected" : undefined}
-      className={`scroll-mt-4 overflow-hidden rounded-xl border ${STATUS_RING[group.status]} ${severityBorderClass(group.status)} border-l-4 ${articleRing}`}
+      className={`scroll-mt-4 rounded-xl border ${STATUS_RING[group.status]} ${severityBorderClass(group.status)} border-l-4`}
     >
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className={`flex w-full items-start gap-3 px-4 py-3 text-left ${
-          emphasizeMemoriaDiff ? "bg-red-50/30 hover:bg-red-50/50" : "hover:bg-white/60"
-        }`}
+        className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-white/60"
       >
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -176,46 +168,20 @@ export function ApartadoReviewSection({
       </button>
 
       {open && (
-        <div className="space-y-4 border-t border-slate-200/80 bg-white px-4 py-4">
+        <div className="border-t border-slate-200/80">
           {hasIssues && !diffsOnly && (
-            <section className="space-y-2">
-              {criticos.length > 0 && (
-                <div className="space-y-2 rounded-lg border border-red-200 bg-red-50/60 p-2.5">
-                  {criticos.map((v) => (
-                    <IssueCard key={v.id} validacion={v} variant="critical" embedded />
-                  ))}
-                </div>
-              )}
-              {advertencias.length > 0 && (
-                <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/50 p-2.5">
-                  {advertencias.map((v) => (
-                    <IssueCard key={v.id} validacion={v} variant="warning" embedded />
-                  ))}
-                </div>
-              )}
-            </section>
+            <div className="space-y-3 px-4 pt-4">
+              {criticos.map((v) => (
+                <IssueCard key={v.id} validacion={v} variant="critical" embedded />
+              ))}
+              {advertencias.map((v) => (
+                <IssueCard key={v.id} validacion={v} variant="warning" embedded />
+              ))}
+            </div>
           )}
 
           {hasCompare && (
-            <section
-              className={
-                emphasizeMemoriaDiff
-                  ? "rounded-xl border border-red-200/80 bg-red-50/20 p-3"
-                  : undefined
-              }
-            >
-              <h3
-                className={`mb-2 text-[10px] font-semibold uppercase tracking-wide ${
-                  emphasizeMemoriaDiff ? "text-red-900" : "text-slate-500"
-                }`}
-              >
-                Comparativa con memoria anterior
-                {emphasizeMemoriaDiff && structuralCount > 0 && (
-                  <span className="ml-2 normal-case font-bold text-red-700">
-                    · {structuralCount} ruptura{structuralCount !== 1 ? "s" : ""} lógica{structuralCount !== 1 ? "s" : ""}
-                  </span>
-                )}
-              </h3>
+            <div className="bg-slate-50 px-4 py-5">
               <ApartadoMemoriaCompare
                 priorText={group.contenidoAnterior}
                 currentText={group.contenido}
@@ -225,11 +191,11 @@ export function ApartadoReviewSection({
                 diffsOnly={diffsOnly}
                 emphasizeStructural={emphasizeMemoriaDiff}
               />
-            </section>
+            </div>
           )}
 
           {superadas.length > 0 && !diffsOnly && (
-            <section className="border-t border-slate-100 pt-2">
+            <div className="border-t border-slate-100 px-4 py-3">
               <button
                 type="button"
                 onClick={() => setShowPasses(!showPasses)}
@@ -249,7 +215,7 @@ export function ApartadoReviewSection({
                   ))}
                 </ul>
               )}
-            </section>
+            </div>
           )}
         </div>
       )}

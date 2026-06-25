@@ -3,12 +3,13 @@
  *
  * Uso: npx tsx scripts/e2e-examples.ts
  */
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { buildCaseData } from "../src/lib/case/build-case-data";
 import { clasificarEmpresa } from "../src/lib/classifier";
 import { parseExcel } from "../src/lib/parsers/excel/parser";
 import { detectarFormatoMemoria, parseMemoria } from "../src/lib/parsers/memoria/parser";
+import { parseImporte } from "../src/lib/parsers/memoria/extractors";
 import { runValidationEngine, computeCaseScore } from "../src/lib/rules/engine";
 import type { MemoriaNormalizada } from "../src/types/domain";
 
@@ -65,6 +66,50 @@ async function main() {
     cta2423 && Math.abs(cta2423.saldo - 821917.23) < 0.05,
     `Cuenta 2423 (créditos l/p grupo) = ${cta2423?.saldo.toFixed(2)} (esperado 821.917,23)`
   );
+
+  // ── 2b. Memorias MARIO PILATO (RTF 2024 + Word binario 2025) ─────────────
+  console.log("\n== 2b. Memorias M0106578 (RTF vs Word binario) ==");
+  const marioRtfPath = path.join(EXAMPLES, "M0106578-2024.DOC");
+  const marioDocPath = path.join(EXAMPLES, "M0106578.DOC");
+  if (existsSync(marioRtfPath) && existsSync(marioDocPath)) {
+    const marioRtfBuf = readFileSync(marioRtfPath);
+    const marioDocBuf = readFileSync(marioDocPath);
+
+    assert(detectarFormatoMemoria(marioRtfBuf) === "rtf", "M0106578-2024.DOC se detecta como RTF");
+    assert(detectarFormatoMemoria(marioDocBuf) === "doc_binario", "M0106578.DOC se detecta como Word binario");
+
+    const memoriaMario2024 = await parseMemoria(marioRtfBuf, "M0106578-2024.DOC", "memoria_word");
+    const memoriaMario2025 = await parseMemoria(marioDocBuf, "M0106578.DOC", "memoria_word");
+
+    resumenMemoria("MARIO 2024 (RTF)", memoriaMario2024);
+    resumenMemoria("MARIO 2025 (binario)", memoriaMario2025);
+
+    assert(memoriaMario2024.datosClave.ejercicio === 2024, `Ejercicio RTF por nombre: ${memoriaMario2024.datosClave.ejercicio}`);
+    assert(memoriaMario2025.datosClave.ejercicio === 2025, `Ejercicio binario por contenido: ${memoriaMario2025.datosClave.ejercicio}`);
+    assert(memoriaMario2025.datosClave.nif === "A46092094", `NIF MARIO: ${memoriaMario2025.datosClave.nif}`);
+
+    const tablasImporte2025 = memoriaMario2025.tablas.filter((t) =>
+      t.cabecera.some((c) => /IMPORTE\s+2025/i.test(c))
+    );
+    assert(tablasImporte2025.length >= 3, `Tablas con columnas IMPORTE 2025/2024: ${tablasImporte2025.length}`);
+
+    const cabeceraMov = tablasImporte2025.find((t) => /TERRENOS/i.test(t.cabecera[0] ?? ""));
+    if (cabeceraMov) {
+      assert(cabeceraMov.cabecera.length >= 3, `Cabecera movimientos parseada: ${cabeceraMov.cabecera.join(" | ")}`);
+      const filaSaldo = cabeceraMov.filas.find((f) => /SALDO INICIAL BRUTO/i.test(f[0] ?? ""));
+      assert(
+        filaSaldo && filaSaldo.length >= 3 && parseImporte(filaSaldo[1] ?? "") !== null,
+        `Fila SALDO INICIAL con importe 2025 separado: ${filaSaldo?.join(" | ")}`
+      );
+    }
+
+    assert(
+      !memoriaMario2025.textoCompleto.includes("\u0007"),
+      "El texto normalizado no conserva separadores \\u0007"
+    );
+  } else {
+    console.log("  (fixtures M0106578 no presentes — omitido)");
+  }
 
   // ── 2. Memorias .DOC ──────────────────────────────────────────────────────
   console.log("\n== 2. Memorias .DOC ==");

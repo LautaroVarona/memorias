@@ -46,19 +46,27 @@ export function detectarFormatoMemoria(buffer: Buffer): FormatoMemoria | null {
   return null;
 }
 
+/** Separador de celda en tablas Word binarias (A3SOC): tab o BEL \\u0007. */
+const SEPARADOR_CELDA_TABULAR = /[\t\u0007]+/;
+
+function limpiarCeldaTabular(celda: string): string {
+  return celda.replace(/[\u0000-\u0006\u0008-\u001F\u007F]/g, "").trim();
+}
+
 /**
  * Normaliza el texto extraído: las tablas de word-extractor usan tabuladores
- * como separador de celda; las convertimos al formato "a | b | c" que produce
- * el extractor RTF, para que los extractores trabajen sobre un único formato.
+ * o el carácter de control \\u0007 (BEL) como separador de celda; las
+ * convertimos al formato "a | b | c" que produce el extractor RTF, para que
+ * los extractores trabajen sobre un único formato.
  */
 function normalizarTexto(texto: string): string {
   return texto
     .split("\n")
     .map((line) => {
-      if (!line.includes("\t")) return line.trimEnd();
+      if (!SEPARADOR_CELDA_TABULAR.test(line)) return line.trimEnd();
       return line
-        .split("\t")
-        .map((c) => c.trim())
+        .split(SEPARADOR_CELDA_TABULAR)
+        .map(limpiarCeldaTabular)
         .join(" | ")
         .replace(/(\s\|\s)+$/, " |")
         .trimEnd();
@@ -108,7 +116,7 @@ export async function parseMemoria(
   const cifras = extraerCifras(texto);
   const statements = extraerStatements(texto);
   const formal = analizarFormal(texto);
-  const datosClave = extraerDatosClave(texto);
+  const datosClave = extraerDatosClave(texto, fileName);
   const anios = extraerAniosMencionados(texto);
 
   return {

@@ -89,6 +89,23 @@ export function buildApartadoGroups(
   for (const sec of sections) {
     const num = apartadoNumFromSection(sec);
     const prior = findPriorSection(sec, priorSections);
+    const existing = map.get(num);
+    if (existing) {
+      const merged = [existing.contenido, sec.contenido].filter(Boolean).join("\n\n");
+      existing.contenido = merged;
+      if (!existing.title && sec.titulo) existing.title = sec.titulo;
+      const priorContent = prior?.contenido;
+      if (priorContent) {
+        existing.contenidoAnterior = [existing.contenidoAnterior, priorContent]
+          .filter(Boolean)
+          .join("\n\n");
+      }
+      existing.memoriaDiff = summarizeMemoriaDiff(
+        existing.contenidoAnterior ?? "",
+        existing.contenido ?? ""
+      );
+      continue;
+    }
     map.set(num, {
       num,
       title: sec.titulo,

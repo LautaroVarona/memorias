@@ -120,9 +120,8 @@ function memoriaToMemoryBlock(
     }),
 
     vinculadas: extraerVinculadas(memoria.textoCompleto, memoria.tablas ?? [], {
-
       documento: "memoria_actual",
-
+      ejercicio,
     }),
 
   };
@@ -242,9 +241,8 @@ export function buildCaseData(input: BuildCaseDataInput): CaseData {
         }),
 
         vinculadas: extraerVinculadas(pyMem.textoCompleto, pyMem.tablas ?? [], {
-
           documento: "memoria_anterior",
-
+          ejercicio: input.priorYear.ejercicio,
         }),
 
       };

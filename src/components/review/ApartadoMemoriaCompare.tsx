@@ -20,26 +20,24 @@ interface ApartadoMemoriaCompareProps {
   ejercicioAnterior?: number;
   ejercicioActual?: number;
   highlightQuery?: string;
-  /** Solo filas con cambios (sin líneas idénticas). */
   diffsOnly?: boolean;
-  /** Resalta con más fuerza las filas con ruptura lógica (texto distinto). */
   emphasizeStructural?: boolean;
 }
 
 const TEXT_ROW_BG: Record<LineDiffKind, { prior: string; current: string }> = {
-  unchanged: { prior: "bg-white", current: "bg-white" },
+  unchanged: { prior: "", current: "" },
   expected: { prior: "bg-blue-50/60", current: "bg-blue-50/60" },
   structural: { prior: "bg-red-50/50", current: "bg-red-50/50" },
-  removed: { prior: "bg-red-50/70", current: "bg-white" },
-  added: { prior: "bg-white", current: "bg-red-50/70" },
+  removed: { prior: "bg-red-50/70", current: "" },
+  added: { prior: "", current: "bg-red-50/70" },
 };
 
 const TEXT_ROW_BG_EMPHASIZED: Record<LineDiffKind, { prior: string; current: string }> = {
-  unchanged: { prior: "bg-white", current: "bg-white" },
+  unchanged: { prior: "", current: "" },
   expected: { prior: "bg-blue-50/80", current: "bg-blue-50/80" },
   structural: { prior: "bg-red-100/60", current: "bg-red-100/60" },
-  removed: { prior: "bg-red-100/80", current: "bg-white" },
-  added: { prior: "bg-white", current: "bg-red-100/80" },
+  removed: { prior: "bg-red-100/80", current: "" },
+  added: { prior: "", current: "bg-red-100/80" },
 };
 
 const CELL_KIND_BG: Record<LineDiffKind, string> = {
@@ -56,7 +54,7 @@ const CHAR_MARK: Record<CharDiffSegment["kind"], string> = {
   added: "rounded-sm bg-red-200/90 px-px font-medium text-red-950",
 };
 
-const CELL_BASE = "min-h-[1.75rem] whitespace-pre-wrap break-words px-3 py-1.5 text-slate-700";
+const CELL_BASE = "whitespace-pre-wrap break-words py-2 pr-3 text-slate-700";
 
 function CharDiffText({ segments }: { segments: CharDiffSegment[] }) {
   return (
@@ -138,16 +136,15 @@ function DiffRow({
   const currentEmpty = line.kind === "removed" || !line.current.trim();
   const emphasized = Boolean(emphasizeStructural && line.kind === "structural");
   const bg = emphasized ? TEXT_ROW_BG_EMPHASIZED : TEXT_ROW_BG;
-  const rowBorder = "border-b border-slate-100";
 
   return (
     <div className="contents">
-      <div className={`${CELL_BASE} ${rowBorder} ${bg[line.kind].prior}`}>
+      <div className={`${CELL_BASE} border-b border-slate-100/80 ${bg[line.kind].prior}`}>
         {!priorEmpty && (
           <DiffText text={line.prior} line={line} side="prior" highlightQuery={highlightQuery} />
         )}
       </div>
-      <div className={`${CELL_BASE} ${rowBorder} ${bg[line.kind].current}`}>
+      <div className={`${CELL_BASE} border-b border-slate-100/80 ${bg[line.kind].current}`}>
         {!currentEmpty && (
           <DiffText text={line.current} line={line} side="current" highlightQuery={highlightQuery} />
         )}
@@ -197,10 +194,10 @@ function MemoriaCompareTable({
   if (table.columns.length === 0 && table.rows.length === 0) return null;
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-      <table className="w-full min-w-[16rem] border-collapse text-xs">
+    <div className="my-6 overflow-x-auto">
+      <table className="w-full min-w-[16rem] border-collapse border border-slate-200 text-xs">
         <thead>
-          <tr className="border-b border-slate-200 bg-slate-50/90">
+          <tr className="border-b border-slate-200 bg-slate-100/80">
             {table.columns.map((col) => (
               <th
                 key={col.key}
@@ -288,65 +285,20 @@ function MemoriaCompareTable({
 
 function CompareLegend() {
   return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-slate-100 px-3 py-2 text-[10px] text-slate-500">
+    <p className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-500">
       <span className="inline-flex items-center gap-1">
         <span className="h-2 w-3 rounded-sm bg-blue-200" />
-        Sugerencia inteligente (cifra / año)
+        Sugerencia inteligente
       </span>
       <span className="inline-flex items-center gap-1">
         <span className="h-2 w-3 rounded-sm bg-red-200" />
-        Ruptura lógica (texto distinto / dato faltante)
+        Ruptura lógica
       </span>
-    </div>
+    </p>
   );
 }
 
-function TextCompareGrid({
-  lines,
-  priorLabel,
-  currentLabel,
-  highlightQuery,
-  emptyMessage,
-  emphasizeStructural,
-}: {
-  lines: ComparedLine[];
-  priorLabel: string;
-  currentLabel: string;
-  highlightQuery?: string;
-  emptyMessage?: string;
-  emphasizeStructural?: boolean;
-}) {
-  if (lines.length === 0 && emptyMessage) {
-    return (
-      <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-        {emptyMessage}
-      </p>
-    );
-  }
-
-  if (lines.length === 0) return null;
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="grid grid-cols-2 gap-px border-b border-slate-100 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        <div className="bg-slate-50/90 px-3 py-2 text-left">{priorLabel}</div>
-        <div className="bg-blue-50/40 px-3 py-2 text-right font-bold text-blue-900">{currentLabel}</div>
-      </div>
-      <div className="grid max-h-[28rem] grid-cols-2 gap-px auto-rows-min overflow-y-auto bg-slate-100 text-[12px] leading-relaxed">
-        {lines.map((line, i) => (
-          <DiffRow
-            key={i}
-            line={line}
-            highlightQuery={highlightQuery}
-            emphasizeStructural={emphasizeStructural}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ContentBlocks({
+function FlatCompareContent({
   blocks,
   priorLabel,
   currentLabel,
@@ -359,32 +311,39 @@ function ContentBlocks({
   highlightQuery?: string;
   emphasizeStructural?: boolean;
 }) {
+  const textLines = blocks.filter((b): b is { type: "text"; line: ComparedLine } => b.type === "text");
+  const tables = blocks.filter((b): b is { type: "table"; table: ComparedTable } => b.type === "table");
+
   return (
-    <div className="space-y-4">
-      {blocks.map((block, i) => {
-        if (block.type === "table") {
-          return (
-            <MemoriaCompareTable
-              key={`tbl-${i}`}
-              table={block.table}
-              priorLabel={priorLabel}
-              currentLabel={currentLabel}
+    <>
+      <div className="mb-3 grid grid-cols-2 gap-x-6 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <div>{priorLabel}</div>
+        <div className="text-right text-blue-900">{currentLabel}</div>
+      </div>
+
+      {textLines.length > 0 && (
+        <div className="grid grid-cols-2 gap-x-6 text-[13px] leading-relaxed">
+          {textLines.map((block, i) => (
+            <DiffRow
+              key={i}
+              line={block.line}
+              highlightQuery={highlightQuery}
               emphasizeStructural={emphasizeStructural}
             />
-          );
-        }
-        return (
-          <TextCompareGrid
-            key={`txt-${i}`}
-            lines={[block.line]}
-            priorLabel={priorLabel}
-            currentLabel={currentLabel}
-            highlightQuery={highlightQuery}
-            emphasizeStructural={emphasizeStructural}
-          />
-        );
-      })}
-    </div>
+          ))}
+        </div>
+      )}
+
+      {tables.map((block, i) => (
+        <MemoriaCompareTable
+          key={`tbl-${i}`}
+          table={block.table}
+          priorLabel={priorLabel}
+          currentLabel={currentLabel}
+          emphasizeStructural={emphasizeStructural}
+        />
+      ))}
+    </>
   );
 }
 
@@ -405,33 +364,27 @@ export function ApartadoMemoriaCompare({
 
   const priorLabel =
     ejercicioAnterior !== undefined
-      ? `← Memoria ${ejercicioAnterior} (anterior)`
-      : "← Memoria año anterior";
+      ? `← Memoria ${ejercicioAnterior}`
+      : "← Memoria anterior";
   const currentLabel =
     ejercicioActual !== undefined
-      ? `Memoria ${ejercicioActual} (actual) →`
+      ? `Memoria ${ejercicioActual} →`
       : "Memoria actual →";
 
   if (!priorText?.trim()) {
     return (
-      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center">
-        <p className="text-sm text-slate-600">
-          No hay memoria del ejercicio anterior cargada para comparar este apartado.
-        </p>
+      <p className="text-sm text-slate-600">
+        No hay memoria del ejercicio anterior cargada para comparar este apartado.
         {currentText?.trim() && (
-          <p className="mt-4 max-h-64 overflow-y-auto whitespace-pre-wrap text-left text-xs text-slate-500">
-            {currentText}
-          </p>
+          <span className="mt-3 block whitespace-pre-wrap text-xs text-slate-500">{currentText}</span>
         )}
-      </div>
+      </p>
     );
   }
 
   if (!currentText?.trim()) {
     return (
-      <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm italic text-slate-500">
-        Sin contenido detectado en la memoria actual.
-      </p>
+      <p className="text-sm italic text-slate-500">Sin contenido detectado en la memoria actual.</p>
     );
   }
 
@@ -443,39 +396,29 @@ export function ApartadoMemoriaCompare({
       return b.table.rows.every((r) => r.kind === "unchanged" || r.kind === "expected");
     });
 
-  const hasContent = blocks.length > 0;
+  if (blocks.length === 0) {
+    return (
+      <p className="text-xs text-slate-500">
+        {diffsOnly ? "Sin diferencias respecto al año anterior." : "Sin contenido comparable."}
+      </p>
+    );
+  }
 
   return (
-    <div className="space-y-2">
+    <div>
       {soloEsperado && (
-        <p className="text-xs text-blue-700">
-          Formato coherente con el año anterior — solo cambian cifras o referencias de ejercicio.
+        <p className="mb-3 text-xs text-blue-700">
+          Solo cambian cifras o referencias de ejercicio.
         </p>
       )}
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <CompareLegend />
-        {hasContent && (
-          <div className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-100 text-[10px] font-semibold uppercase tracking-wide">
-            <div className="bg-slate-50/90 px-3 py-2 text-left text-slate-600">{priorLabel}</div>
-            <div className="bg-blue-50/50 px-3 py-2 text-right text-blue-900">{currentLabel}</div>
-          </div>
-        )}
-        {hasContent ? (
-          <div className="p-2">
-            <ContentBlocks
-              blocks={blocks}
-              priorLabel={priorLabel}
-              currentLabel={currentLabel}
-              highlightQuery={highlightQuery}
-              emphasizeStructural={emphasizeStructural}
-            />
-          </div>
-        ) : (
-          <p className="px-4 py-3 text-xs text-slate-500">
-            {diffsOnly ? "Sin diferencias respecto al año anterior." : "Sin contenido comparable."}
-          </p>
-        )}
-      </div>
+      <CompareLegend />
+      <FlatCompareContent
+        blocks={blocks}
+        priorLabel={priorLabel}
+        currentLabel={currentLabel}
+        highlightQuery={highlightQuery}
+        emphasizeStructural={emphasizeStructural}
+      />
     </div>
   );
 }

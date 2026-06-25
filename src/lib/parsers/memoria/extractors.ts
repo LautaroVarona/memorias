@@ -19,10 +19,25 @@ import type {
 } from "@/types/case-data";
 
 export function parseImporte(str: string): number | null {
-  const match = str.match(/(-?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|-?\d+(?:,\d{1,2})?)/);
+  const limpio = str.replace(/[\u0000-\u001F\u007F]/g, "");
+  const match = limpio.match(/(-?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|-?\d+(?:,\d{1,2})?)/);
   if (!match) return null;
   const n = parseFloat(match[1].replace(/\./g, "").replace(",", "."));
   return isNaN(n) ? null : n;
+}
+
+/**
+ * Ejercicio codificado en el nombre del archivo del despacho.
+ * Ej.: `M0106578-2024.DOC` → 2024. Si no hay sufijo `-YYYY`, devuelve undefined
+ * y el ejercicio se infiere del contenido (p. ej. `M0106578.DOC` → 2025).
+ */
+export function ejercicioDesdeNombreArchivo(fileName: string): number | undefined {
+  const base = fileName.replace(/^.*[/\\]/, "").replace(/\.[^.]+$/i, "");
+  const match = base.match(/-(\d{4})$/);
+  if (!match) return undefined;
+  const year = parseInt(match[1], 10);
+  if (!Number.isFinite(year) || year < 1990 || year > 2099) return undefined;
+  return year;
 }
 
 export function extraerCifras(texto: string): CifrasMemoria {
@@ -121,10 +136,10 @@ export function extraerStatements(texto: string): MemoryStatement[] {
 }
 
 /**
- * Encabezado de apartado: "01 Actividad", "03. Normas de registro", "12 - Situación fiscal".
- * Acepta memorias normal y abreviada con numeración propia del documento.
+ * Encabezado de apartado de primer nivel: "01 Actividad", "03. Normas de registro".
+ * Exige dos dígitos para no confundir subtítulos internos ("1. Objeto social") con apartados.
  */
-const CANONICAL_HEADING = /^(\d{1,2})[.\s)\-–:]+([A-ZÁÉÍÓÚÑ].{2,120})$/;
+const CANONICAL_HEADING = /^(\d{2})[.\s)\-–:]+([A-ZÁÉÍÓÚÑ].{2,120})$/;
 
 const TITULO_APARTADO_INVALIDO =
   /^(importe|saldo|total|subtotal|p[aá]gina|nota|tabla|anexo|movimientos)\b/i;
@@ -185,6 +200,15 @@ export function extraerApartados(texto: string): ApartadoMemoria[] {
       };
     } else if (current) {
       current.contenido += (current.contenido ? "\n" : "") + linea;
+    } else {
+      // Preambulo antes del primer apartado numerado
+      current = {
+        id: "00",
+        titulo: "Preámbulo",
+        contenido: linea,
+        obligatorio: false,
+        numero: 0,
+      };
     }
   }
 
@@ -252,11 +276,16 @@ export function tablaEsCualitativa(cabecera: string[], datos: string[][] = []): 
 }
 
 function columnasDatosRelevantes(cabecera: string[]): number[] {
-  const importeCols: number[] = [];
+  const importeCols: { idx: number; year: number }[] = [];
   for (let i = 1; i < cabecera.length; i++) {
-    if (/IMPORTE\s+20\d{2}/i.test(cabecera[i])) importeCols.push(i);
+    const m = cabecera[i].match(/IMPORTE\s+(20\d{2})/i);
+    if (m) importeCols.push({ idx: i, year: parseInt(m[1], 10) });
   }
-  if (importeCols.length > 0) return [importeCols[importeCols.length - 1]];
+  if (importeCols.length > 0) {
+    // Columna del ejercicio más reciente (IMPORTE 2025 antes que IMPORTE 2024)
+    const masReciente = [...importeCols].sort((a, b) => b.year - a.year)[0];
+    return [masReciente.idx];
+  }
   return cabecera.slice(1).map((_, idx) => idx + 1);
 }
 
@@ -318,7 +347,7 @@ export function extraerTablas(texto: string): TablaMemoria[] {
 
     const cells = linea
       .split("|")
-      .map((c) => c.trim())
+      .map((c) => c.replace(/[\u0000-\u001F\u007F]/g, "").trim())
       .filter((_, idx, arr) => !(idx === arr.length - 1 && arr[idx] === ""));
 
     // El RTF parte filas lógicas en varias líneas (la etiqueta en una línea y
@@ -380,7 +409,7 @@ function detectarTipoMemoria(texto: string, numApartados: number): DatosClaveMem
   return "normal";
 }
 
-export function extraerDatosClave(texto: string): DatosClaveMemoria {
+export function extraerDatosClave(texto: string, fileName?: string): DatosClaveMemoria {
   const datos: DatosClaveMemoria = {};
 
   const denominacion = texto.match(/La empresa\s+(.{3,80}?)\s+se constituyó/i);
@@ -391,7 +420,8 @@ export function extraerDatosClave(texto: string): DatosClaveMemoria {
     texto.match(/\bN\.?I\.?F\.?\s*:?\s*([A-Z]\d{8}|\d{8}[A-Z])\b/);
   if (nif) datos.nif = nif[1].toUpperCase();
 
-  datos.ejercicio = detectarEjercicio(texto);
+  const ejercicioNombre = fileName ? ejercicioDesdeNombreArchivo(fileName) : undefined;
+  datos.ejercicio = ejercicioNombre ?? detectarEjercicio(texto);
 
   const cierre = texto.match(/\b(31\/12\/20\d{2})\b/);
   if (cierre) datos.fechaCierre = cierre[1];
@@ -650,7 +680,7 @@ function extraerCeldaPropuesta(
   tabla: TablaMemoria,
   fila: string[],
   filaEtiqueta: string,
-  columnaIdx: 1 | 2,
+  columnaIdx: number,
   documento: DocumentoOrigen,
   ejercicio?: number
 ): TrackingValue<number> | undefined {
@@ -675,29 +705,43 @@ function extraerCifrasPropuestaDeTablas(
   const cifras: CifrasPropuestaTabla = {};
 
   for (const tabla of tablas) {
+    const { actual: colActual, anterior: colAnterior } = columnasComparativasPorEjercicio(
+      tabla.cabecera,
+      ejercicio
+    );
+
     for (const fila of tabla.filas) {
       const etiqueta = normalizarEtiquetaFila(fila[0] ?? "");
       if (!etiqueta) continue;
 
       if (PATRON_FILA_PERDIDAS_GANANCIAS.test(etiqueta)) {
-        const actual = extraerCeldaPropuesta(tabla, fila, etiqueta, 1, documento, ejercicio);
-        const anterior = extraerCeldaPropuesta(tabla, fila, etiqueta, 2, documento, ejercicio);
+        const actual = extraerCeldaPropuesta(tabla, fila, etiqueta, colActual, documento, ejercicio);
+        const anterior =
+          colAnterior !== undefined
+            ? extraerCeldaPropuesta(tabla, fila, etiqueta, colAnterior, documento, ejercicio)
+            : undefined;
         if (actual) cifras.resultadoEjercicio = actual;
         if (anterior) cifras.resultadoEjercicioAnterior = anterior;
         continue;
       }
 
       if (PATRON_FILA_RESERVA_CAPITALIZACION.test(etiqueta)) {
-        const actual = extraerCeldaPropuesta(tabla, fila, etiqueta, 1, documento, ejercicio);
-        const anterior = extraerCeldaPropuesta(tabla, fila, etiqueta, 2, documento, ejercicio);
+        const actual = extraerCeldaPropuesta(tabla, fila, etiqueta, colActual, documento, ejercicio);
+        const anterior =
+          colAnterior !== undefined
+            ? extraerCeldaPropuesta(tabla, fila, etiqueta, colAnterior, documento, ejercicio)
+            : undefined;
         if (actual) cifras.reservaIndisponible = actual;
         if (anterior) cifras.reservaIndisponibleAnterior = anterior;
         continue;
       }
 
       if (PATRON_FILA_RESERVAS_VOLUNTARIAS.test(etiqueta)) {
-        const actual = extraerCeldaPropuesta(tabla, fila, etiqueta, 1, documento, ejercicio);
-        const anterior = extraerCeldaPropuesta(tabla, fila, etiqueta, 2, documento, ejercicio);
+        const actual = extraerCeldaPropuesta(tabla, fila, etiqueta, colActual, documento, ejercicio);
+        const anterior =
+          colAnterior !== undefined
+            ? extraerCeldaPropuesta(tabla, fila, etiqueta, colAnterior, documento, ejercicio)
+            : undefined;
         if (actual) cifras.reservasVoluntarias = actual;
         if (anterior) cifras.reservasVoluntariasAnterior = anterior;
       }
@@ -832,15 +876,45 @@ function localizarTablasVinculadas(texto: string, tablas: TablaMemoria[]): Tabla
   return tablas.filter((t) => !t.vacia && tablaEsVinculadas(t));
 }
 
-function columnasEjercicioVinculadas(cabecera: string[]): { actual: number; anterior?: number } {
-  const anioCols: number[] = [];
+function columnaPorEjercicio(cabecera: string[], ejercicio: number): number | undefined {
+  const y = String(ejercicio);
   for (let i = 1; i < cabecera.length; i++) {
-    if (/IMPORTE\s+20\d{2}|20\d{2}/i.test(cabecera[i])) anioCols.push(i);
+    if (cabecera[i].toLowerCase().includes(y)) return i;
   }
+  return undefined;
+}
+
+/** Resuelve columnas comparativas por año de cabecera (IMPORTE 2025 / IMPORTE 2024). */
+function columnasComparativasPorEjercicio(
+  cabecera: string[],
+  ejercicioMemoria?: number
+): { actual: number; anterior?: number } {
+  const anioCols: { idx: number; year: number }[] = [];
+  for (let i = 1; i < cabecera.length; i++) {
+    const m = cabecera[i].match(/(?:IMPORTE\s+)?(20\d{2})/i);
+    if (m) anioCols.push({ idx: i, year: parseInt(m[1], 10) });
+  }
+
+  if (ejercicioMemoria !== undefined && anioCols.length > 0) {
+    const actual =
+      columnaPorEjercicio(cabecera, ejercicioMemoria) ??
+      [...anioCols].sort((a, b) => b.year - a.year)[0]?.idx;
+    const anterior =
+      columnaPorEjercicio(cabecera, ejercicioMemoria - 1) ??
+      anioCols.find((c) => c.year === ejercicioMemoria - 1)?.idx;
+    if (actual !== undefined) return { actual, anterior };
+  }
+
   if (anioCols.length > 0) {
-    return { actual: anioCols[0], anterior: anioCols[1] };
+    const sorted = [...anioCols].sort((a, b) => b.year - a.year);
+    return { actual: sorted[0].idx, anterior: sorted[1]?.idx };
   }
+
   return { actual: 1, anterior: cabecera.length > 2 ? 2 : undefined };
+}
+
+function columnasEjercicioVinculadas(cabecera: string[], ejercicioMemoria?: number): { actual: number; anterior?: number } {
+  return columnasComparativasPorEjercicio(cabecera, ejercicioMemoria);
 }
 
 function ubicacionVinculadasFila(
@@ -876,7 +950,8 @@ function sumarPorCategoria(filas: ImporteVinculadasFila[], categoria: Vinculadas
 
 function extraerCifrasVinculadasDeTablas(
   tablas: TablaMemoria[],
-  documento: DocumentoOrigen
+  documento: DocumentoOrigen,
+  ejercicioMemoria?: number
 ): Pick<VinculadasMemoria, "filas" | "totalActual" | "clientesGrupo" | "proveedoresGrupo" | "prestamos"> {
   const filas: ImporteVinculadasFila[] = [];
   const indice = new Map<string, ImporteVinculadasFila>();
@@ -884,7 +959,10 @@ function extraerCifrasVinculadasDeTablas(
   for (const tabla of tablas) {
     const nombreTabla = nombreTablaVinculadas(tabla);
     const apartadoRef = tabla.apartado ?? "09";
-    const { actual: colActual, anterior: colAnterior } = columnasEjercicioVinculadas(tabla.cabecera);
+    const { actual: colActual, anterior: colAnterior } = columnasEjercicioVinculadas(
+      tabla.cabecera,
+      ejercicioMemoria
+    );
 
     for (const fila of tabla.filas) {
       const nombreFilaLimpio = normalizarDescripcionVinculadas(fila[0] ?? "");
@@ -937,6 +1015,7 @@ function extraerCifrasVinculadasDeTablas(
 
 export interface ExtraerVinculadasOpciones {
   documento?: DocumentoOrigen;
+  ejercicio?: number;
 }
 
 /** Extrae saldos trazados del apartado de operaciones con partes vinculadas. */
@@ -960,6 +1039,6 @@ export function extraerVinculadas(
     };
   }
 
-  const cifras = extraerCifrasVinculadasDeTablas(tablasVinculadas, documento);
+  const cifras = extraerCifrasVinculadasDeTablas(tablasVinculadas, documento, opts.ejercicio);
   return { tieneApartado: true, ...cifras };
 }
