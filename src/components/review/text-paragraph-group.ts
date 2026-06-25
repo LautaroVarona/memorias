@@ -35,12 +35,26 @@ function esTituloCorto(line: string): boolean {
 
 function prefijoListaIncompleto(text: string): boolean {
   const t = text.trim();
-  return /^[a-z]\)$/i.test(t) || (t.endsWith(":") && t.length < 48);
+  if (/^[a-z]\)$/i.test(t)) return true;
+  if (t.endsWith(":") && t.length < 48) return true;
+  // "a) Activos financieros" sin dos puntos: la línea siguiente suele ser ": - ítem"
+  if (/^[a-z]\)\s+\S/i.test(t) && !/:\s*$/.test(t)) return true;
+  return false;
+}
+
+/** Línea huérfana de maquetación Word: ": - ítem" o ": ítem" tras un subtítulo. */
+function lineaEsPrefijoColonLista(line: string): boolean {
+  return /^:\s*([-–—]\s*)?\S/.test(line.trim());
+}
+
+function encabezadoSubseccionLista(text: string): boolean {
+  return /^[a-z]\)\s+\S/i.test(text.trim()) && !text.trim().endsWith(":");
 }
 
 function lineaEsContinuacionForzada(anterior: string): boolean {
   if (prefijoListaIncompleto(anterior)) return true;
   if (/^[a-z]\)\s/i.test(anterior.trim()) && anterior.trim().length <= 4) return true;
+  if (encabezadoSubseccionLista(anterior)) return true;
   return false;
 }
 
@@ -49,6 +63,7 @@ function lineaEsContinuacion(anterior: string, line: string): boolean {
   const t = line.trim();
   if (!p || !t) return false;
   if (prefijoListaIncompleto(p)) return true;
+  if (encabezadoSubseccionLista(p) && lineaEsPrefijoColonLista(t)) return true;
   // Un encabezado de sección (p. ej. "Identificación") no se fusiona con el párrafo siguiente.
   if (lineaIniciaUnidad(p) && !prefijoListaIncompleto(p)) return false;
   if (lineaIniciaUnidad(t) && !lineaEsContinuacionForzada(p)) return false;
@@ -63,14 +78,44 @@ function unirLineas(anterior: string, line: string): string {
   const p = anterior.trim();
   const t = line.trim();
   if (p.endsWith("-")) return p.slice(0, -1) + t;
+  if (lineaEsPrefijoColonLista(t)) {
+    return `${p.replace(/:?\s*$/, "")}: ${t.replace(/^:\s*/, "")}`;
+  }
   return `${p} ${t}`;
+}
+
+/**
+ * Word parte a veces "a) Título" y ": - ítem" en líneas distintas; otras veces en una sola.
+ * Une esas líneas antes de agrupar párrafos.
+ */
+export function normalizarLineasVolcado(lines: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    if (lineaEsPrefijoColonLista(line) && out.length > 0) {
+      const prev = out[out.length - 1]!;
+      if (
+        encabezadoSubseccionLista(prev) ||
+        prefijoListaIncompleto(prev) ||
+        /^[a-z]\)\s/i.test(prev)
+      ) {
+        out[out.length - 1] = unirLineas(prev, line);
+        continue;
+      }
+    }
+    out.push(line);
+  }
+  return out;
 }
 
 export function agruparLineasEnParrafos(lines: string[]): string[] {
   const blocks: string[] = [];
   let buf = "";
+  const fuente = normalizarLineasVolcado(lines);
 
-  for (const raw of lines) {
+  for (const raw of fuente) {
     const line = raw.trim();
     if (!line) {
       if (buf) {
@@ -108,18 +153,62 @@ export function desglosarItemsLista(block: string): string[] {
   const porLetra = t.split(/(?=(?:^|\s)[a-z]\)\s)/i).map((s) => s.trim()).filter(Boolean);
   if (porLetra.length > 1) return porLetra;
 
-  const porGuion = t
+  let porGuion = t
     .split(/(?=(?:^|[\n:])\s*[-–—]\s)/)
     .map((s) => s.trim())
     .filter(Boolean);
+  if (porGuion.length <= 1) {
+    porGuion = t
+      .split(/(?<=[,;])\s+[-–—]\s+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
   if (porGuion.length > 1) return porGuion;
 
   return [t];
 }
 
+/** Encabezado de subsección tipo "a) Activos financieros:" (sin viñeta). */
+export function esEncabezadoSubseccionLista(text: string): boolean {
+  const s = text.trim();
+  if (s.length >= 90 || /^[-–—]/.test(s)) return false;
+  if (/^:\s*[-–—]/.test(s)) return false;
+  if (/:\s*$/.test(s)) return true;
+  // "a) Activos financieros" sin dos puntos (Word partió antes de ": -")
+  return /^[a-z]\)\s+\S/i.test(s) && !/[-–—]/.test(s);
+}
+
+/** Etiqueta canónica de un encabezado (ignora prefijo a) y dos puntos finales). */
+export function etiquetaEncabezadoSubseccion(text: string): string {
+  return text
+    .trim()
+    .replace(/^[a-z]\)\s*/i, "")
+    .replace(/:+\s*$/, "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Fusiona bloques ": - ítem" huérfanos con el encabezado anterior. */
+function fusionarPrefijosColonHuérfanos(blocks: string[]): string[] {
+  const result: string[] = [];
+  for (const b of blocks) {
+    const t = b.trim();
+    if (lineaEsPrefijoColonLista(t) && result.length > 0) {
+      result[result.length - 1] = unirLineas(result[result.length - 1]!, t);
+      continue;
+    }
+    result.push(t);
+  }
+  return result;
+}
+
 /** Descompone bloques en ítems homogéneos para alinear memorias con distinta maquetación. */
 export function normalizarBloquesComparacion(blocks: string[]): string[] {
-  return blocks.flatMap((b) => desglosarItemsLista(b));
+  const desglosados = blocks.flatMap((b) => desglosarItemsLista(b));
+  return fusionarPrefijosColonHuérfanos(desglosados);
 }
 
 export function lineasDeTexto(text: string): string[] {

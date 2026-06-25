@@ -11,6 +11,8 @@ import {
 import { segmentMemoriaContent, type MemoriaSegment } from "./parse-pipe-table";
 import {
   agruparLineasEnParrafos,
+  esEncabezadoSubseccionLista,
+  etiquetaEncabezadoSubseccion,
   lineasDeTexto,
   normalizarBloquesComparacion,
 } from "./text-paragraph-group";
@@ -34,8 +36,25 @@ interface ArrayDiffChunk<T> {
   removed?: boolean;
 }
 
+function bloquesListaEquivalentes(a: string, b: string): boolean {
+  const strip = (s: string) =>
+    s
+      .trim()
+      .replace(/[.;:]+$/g, "")
+      .replace(/\s+/g, " ");
+  return (
+    normalizarTextoComparacionInteranual(strip(a)) ===
+    normalizarTextoComparacionInteranual(strip(b))
+  );
+}
+
 function blocksMatch(a: string, b: string): boolean {
-  return textosEquivalentes(a, b);
+  if (textosEquivalentes(a, b)) return true;
+  if (bloquesListaEquivalentes(a, b)) return true;
+  if (esEncabezadoSubseccionLista(a) && esEncabezadoSubseccionLista(b)) {
+    return etiquetaEncabezadoSubseccion(a) === etiquetaEncabezadoSubseccion(b);
+  }
+  return false;
 }
 
 /** Alineación LCS: empareja bloques idénticos o equivalentes (solo cambian cifras/años). */
@@ -164,6 +183,18 @@ function classifyPair(prior: string, current: string): ComparedLine {
   const c = normalizeTextForDiff(current).trim();
   if (p === c || parrafosEquivalentes(p, c) || textosEquivalentes(p, c)) {
     const display = textoDisplayParrafo(p, c);
+    return { kind: "unchanged", prior: display, current: display };
+  }
+  if (
+    esEncabezadoSubseccionLista(p) &&
+    esEncabezadoSubseccionLista(c) &&
+    etiquetaEncabezadoSubseccion(p) === etiquetaEncabezadoSubseccion(c)
+  ) {
+    const display = (/^[a-z]\)/i.test(p) ? p : c).trim();
+    return { kind: "unchanged", prior: display, current: display };
+  }
+  if (bloquesListaEquivalentes(p, c)) {
+    const display = p.length >= c.length ? p : c;
     return { kind: "unchanged", prior: display, current: display };
   }
   if (isSoloCambioEsperado(p, c)) {
