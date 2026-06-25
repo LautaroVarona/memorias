@@ -158,7 +158,7 @@ export function ExpedienteDetailContent() {
     ejercicioResuelto > 0 ? `Ejercicio ${ejercicioResuelto}` : "Ejercicio pendiente";
 
   return (
-    <div className="mx-auto max-w-[min(100%,90rem)] space-y-8 px-4 pb-12 sm:px-6">
+    <div className="mx-auto w-full max-w-[min(100%,96rem)] space-y-8 px-2 pb-12 sm:px-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <Link href="/" className="text-sm text-slate-500 hover:text-slate-800">

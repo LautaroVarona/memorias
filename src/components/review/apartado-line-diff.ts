@@ -9,6 +9,7 @@ import {
   type ComparedTable,
 } from "./apartado-table-diff";
 import { segmentMemoriaContent, type MemoriaSegment } from "./parse-pipe-table";
+import { agruparLineasEnParrafos, lineasDeTexto } from "./text-paragraph-group";
 
 export type LineDiffKind = "unchanged" | "expected" | "structural" | "removed" | "added";
 
@@ -30,8 +31,7 @@ interface ArrayDiffChunk<T> {
 }
 
 function blocksMatch(a: string, b: string): boolean {
-  if (a === b) return true;
-  return normalizarTextoComparacionInteranual(a) === normalizarTextoComparacionInteranual(b);
+  return textosEquivalentes(a, b);
 }
 
 /** Alineación LCS: empareja bloques idénticos o equivalentes (solo cambian cifras/años). */
@@ -92,20 +92,25 @@ function normalizeTextForDiff(text: string): string {
   );
 }
 
-/** Divide en párrafos; si no hay dobles saltos, cae a líneas para no comparar un bloque monolítico. */
+function textosEquivalentes(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (cifrasEquivalentes(a, b)) return true;
+  return normalizarTextoComparacionInteranual(a) === normalizarTextoComparacionInteranual(b);
+}
+
+/** Agrupa párrafos e ítems de lista; evita tratar cada salto de línea Word como un bloque distinto. */
 function splitTextBlocks(text: string): string[] {
   const normalized = normalizeTextForDiff(text);
-  const paragraphs = normalized
-    .split(/\n\n+/)
-    .map((p) => p.trim())
-    .filter(Boolean);
+  if (!normalized.trim()) return [];
 
-  if (paragraphs.length > 1) return paragraphs;
+  const secciones = normalized.split(/\n\n+/).map((s) => s.trim()).filter(Boolean);
+  const fuente = secciones.length > 0 ? secciones : [normalized.trim()];
 
-  return normalized
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.includes("|"));
+  const blocks: string[] = [];
+  for (const seccion of fuente) {
+    blocks.push(...agruparLineasEnParrafos(lineasDeTexto(seccion)));
+  }
+  return blocks;
 }
 
 function segmentKey(seg: MemoriaSegment): string {
@@ -126,7 +131,7 @@ function segmentsToBlocks(segments: MemoriaSegment[]): { key: string; segment: M
 function classifyPair(prior: string, current: string): ComparedLine {
   const p = normalizeTextForDiff(prior);
   const c = normalizeTextForDiff(current);
-  if (p === c || cifrasEquivalentes(p, c)) return { kind: "unchanged", prior: p, current: c };
+  if (p === c || textosEquivalentes(p, c)) return { kind: "unchanged", prior: p, current: c };
   if (isSoloCambioEsperado(p, c)) return { kind: "expected", prior: p, current: c };
   return { kind: "structural", prior: p, current: c };
 }
@@ -155,6 +160,22 @@ function pairTextBlocks(priorBlocks: string[], currentBlocks: string[]): Compare
       if (changes[i].removed) removedBlocks.push(...(changes[i].value as string[]));
       if (changes[i].added) addedBlocks.push(...(changes[i].value as string[]));
       i++;
+    }
+
+    const mergedMatch =
+      removedBlocks.length > 0 &&
+      addedBlocks.length > 0 &&
+      textosEquivalentes(removedBlocks.join(" "), addedBlocks.join(" "));
+    if (mergedMatch) {
+      result.push({
+        type: "text",
+        line: {
+          kind: "unchanged",
+          prior: normalizeTextForDiff(removedBlocks.join(" ")),
+          current: normalizeTextForDiff(addedBlocks.join(" ")),
+        },
+      });
+      continue;
     }
 
     const pairs = Math.max(removedBlocks.length, addedBlocks.length);
@@ -212,7 +233,16 @@ function alignSegments(
           );
           result.push({ type: "table", table });
         } else if (pSeg.type === "text" && cSeg.type === "text") {
-          result.push(...pairTextBlocks(splitTextBlocks(pSeg.content), splitTextBlocks(cSeg.content)));
+          const pNorm = normalizeTextForDiff(pSeg.content);
+          const cNorm = normalizeTextForDiff(cSeg.content);
+          if (textosEquivalentes(pNorm, cNorm)) {
+            result.push({
+              type: "text",
+              line: { kind: "unchanged", prior: pNorm, current: cNorm },
+            });
+          } else {
+            result.push(...pairTextBlocks(splitTextBlocks(pSeg.content), splitTextBlocks(cSeg.content)));
+          }
         } else {
           result.push(
             ...pairTextBlocks(

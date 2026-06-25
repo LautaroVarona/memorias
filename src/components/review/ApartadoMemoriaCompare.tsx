@@ -45,7 +45,7 @@ const CHAR_MARK: Record<CharDiffSegment["kind"], string> = {
   added: "rounded-sm bg-red-200/90 px-px font-medium text-red-950",
 };
 
-const CELL_BASE = "whitespace-pre-wrap break-words py-2 pr-3 text-slate-700";
+const CELL_BASE = "whitespace-pre-wrap break-words py-1.5 pr-2 text-slate-700";
 
 function CharDiffText({ segments }: { segments: CharDiffSegment[] }) {
   return (
@@ -316,7 +316,7 @@ function FlatCompareContent({
           grupo.type === "text" ? (
             <div
               key={`txt-${gi}`}
-              className="grid grid-cols-2 gap-x-0 text-[13px] leading-relaxed"
+              className="grid grid-cols-2 gap-x-0 text-[13px] leading-snug"
             >
               {grupo.lines.map((line, i) => (
                 <DiffRow

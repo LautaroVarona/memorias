@@ -202,7 +202,7 @@ export function ApartadoReviewSection({
       {open && (
         <div className="border-t border-slate-200/80">
           {hasCompare && (
-            <div className="bg-slate-50 px-4 py-5">
+            <div className="bg-slate-50 px-2 py-4 sm:px-3">
               <ApartadoMemoriaCompare
                 priorText={group.contenidoAnterior}
                 currentText={group.contenido}

@@ -13,7 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body className="min-h-screen antialiased">
         <header className="border-b border-slate-200 bg-white">
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+          <div className="mx-auto flex w-full max-w-[min(100%,96rem)] items-center justify-between px-4 py-3 sm:px-6">
             <Link href="/" className="text-lg font-semibold text-blue-800">
               Memorias
             </Link>
@@ -27,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </nav>
           </div>
         </header>
-        <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+        <main className="mx-auto w-full max-w-[min(100%,96rem)] px-4 py-6 sm:px-6">{children}</main>
         <Analytics />
       </body>
     </html>
