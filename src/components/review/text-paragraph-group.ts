@@ -108,7 +108,10 @@ export function desglosarItemsLista(block: string): string[] {
   const porLetra = t.split(/(?=(?:^|\s)[a-z]\)\s)/i).map((s) => s.trim()).filter(Boolean);
   if (porLetra.length > 1) return porLetra;
 
-  const porGuion = t.split(/(?=(?:^|\n)\s*[-–—]\s)/).map((s) => s.trim()).filter(Boolean);
+  const porGuion = t
+    .split(/(?=(?:^|[\n:])\s*[-–—]\s)/)
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (porGuion.length > 1) return porGuion;
 
   return [t];

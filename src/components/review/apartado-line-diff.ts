@@ -11,6 +11,7 @@ import {
 import { segmentMemoriaContent, type MemoriaSegment } from "./parse-pipe-table";
 import {
   agruparLineasEnParrafos,
+  lineasDeTexto,
   normalizarBloquesComparacion,
 } from "./text-paragraph-group";
 
@@ -122,38 +123,25 @@ function parrafosEquivalentes(a: string, b: string): boolean {
 function textoDisplayParrafo(a: string, b: string): string {
   const pa = splitTextBlocks(a);
   const pb = splitTextBlocks(b);
-  if (pa.length === 1 && pb.length === 1) return pa[0];
-  if (pa.length === 1) return pa[0];
-  if (pb.length === 1) return pb[0];
+  if (pa.length === 1 && pb.length === 1) return pa[0].trim();
+  if (pa.length === 1) return pa[0].trim();
+  if (pb.length === 1) return pb[0].trim();
   return a.trim();
 }
 
-/** Agrupa párrafos e ítems de lista; líneas vacías marcan corte de párrafo (como Word). */
+/**
+ * Parte el texto en párrafos/ítems comparables.
+ * Las líneas en blanco de Word (\\n\\n) se ignoran: el corte lo marca la semántica
+ * (títulos, listas, fin de frase), no la maquetación decorativa.
+ */
 function splitTextBlocks(text: string): string[] {
   const normalized = normalizeTextForDiff(text);
   if (!normalized.trim()) return [];
 
-  const blocks: string[] = [];
-  let chunk: string[] = [];
+  const lines = lineasDeTexto(normalized);
+  if (lines.length === 0) return [];
 
-  for (const raw of normalized.split("\n")) {
-    const line = raw.trim();
-    if (!line) {
-      if (chunk.length > 0) {
-        blocks.push(...agruparLineasEnParrafos(chunk));
-        chunk = [];
-      }
-      continue;
-    }
-    if (line.includes("|")) continue;
-    chunk.push(line);
-  }
-
-  if (chunk.length > 0) {
-    blocks.push(...agruparLineasEnParrafos(chunk));
-  }
-
-  return normalizarBloquesComparacion(blocks);
+  return normalizarBloquesComparacion(agruparLineasEnParrafos(lines));
 }
 
 function segmentKey(seg: MemoriaSegment): string {
@@ -172,8 +160,8 @@ function segmentsToBlocks(segments: MemoriaSegment[]): { key: string; segment: M
 }
 
 function classifyPair(prior: string, current: string): ComparedLine {
-  const p = normalizeTextForDiff(prior);
-  const c = normalizeTextForDiff(current);
+  const p = normalizeTextForDiff(prior).trim();
+  const c = normalizeTextForDiff(current).trim();
   if (p === c || parrafosEquivalentes(p, c) || textosEquivalentes(p, c)) {
     const display = textoDisplayParrafo(p, c);
     return { kind: "unchanged", prior: display, current: display };

@@ -111,7 +111,7 @@ function DiffText({
     );
   }
 
-  return <span>{text}</span>;
+  return <span>{text.trim()}</span>;
 }
 
 function DiffRow({
