@@ -10,7 +10,7 @@ import {
   extraerStatements,
   extraerTablas,
 } from "./extractors";
-import { esRtf, extraerTextoRtf } from "./rtf";
+import { esRtf, extraerTextoRtf, extraerTablasRtf, tablasRtfATexto } from "./rtf";
 
 export type FormatoMemoria = "rtf" | "doc_binario" | "docx" | "pdf";
 
@@ -53,6 +53,37 @@ function limpiarCeldaTabular(celda: string): string {
   return celda.replace(/[\u0000-\u0006\u0008-\u001F\u007F]/g, "").trim();
 }
 
+function filaTabularDesdeSegmento(segmento: string): string {
+  return segmento
+    .split(/[\t\u0007]+/)
+    .map(limpiarCeldaTabular)
+    .filter((c) => c.length > 0)
+    .join(" | ");
+}
+
+/**
+ * Word binario (A3SOC) concatena varias filas de una misma tabla en una línea,
+ * separadas por tabuladores dobles (celda vacía entre filas). Las reconstruye.
+ */
+function reconstruirFilasTabulares(texto: string): string {
+  return texto
+    .split("\n")
+    .flatMap((line) => {
+      if (!SEPARADOR_CELDA_TABULAR.test(line)) return [line.trimEnd()];
+
+      if (/\t{2,}/.test(line) || /\u0007{2,}/.test(line)) {
+        const filas = line
+          .split(/\t{2,}|\u0007{2,}/)
+          .map(filaTabularDesdeSegmento)
+          .filter((f) => f.replace(/\s\|\s/g, "").trim().length > 0);
+        if (filas.length > 1) return filas;
+      }
+
+      return [filaTabularDesdeSegmento(line)];
+    })
+    .join("\n");
+}
+
 /**
  * Normaliza el texto extraído: las tablas de word-extractor usan tabuladores
  * o el carácter de control \\u0007 (BEL) como separador de celda; las
@@ -60,7 +91,7 @@ function limpiarCeldaTabular(celda: string): string {
  * los extractores trabajen sobre un único formato.
  */
 function normalizarTexto(texto: string): string {
-  return texto
+  return reconstruirFilasTabulares(texto)
     .split("\n")
     .map((line) => {
       if (!SEPARADOR_CELDA_TABULAR.test(line)) return line.trimEnd();
@@ -74,10 +105,23 @@ function normalizarTexto(texto: string): string {
     .join("\n");
 }
 
+function enriquecerTextoRtfConTablas(buffer: Buffer, texto: string): string {
+  const tablas = extraerTablasRtf(buffer);
+  if (tablas.length === 0) return texto;
+  const volcadoTablas = tablasRtfATexto(tablas);
+  if (!volcadoTablas.trim()) return texto;
+  // Las tablas ya presentes en el volcado textual no se duplican
+  const lineasTabla = volcadoTablas.split("\n").filter((l) => l.includes("|"));
+  const faltantes = lineasTabla.filter((linea) => !texto.includes(linea.slice(0, Math.min(60, linea.length))));
+  if (faltantes.length === 0) return texto;
+  return `${texto}\n\n${faltantes.join("\n")}`;
+}
+
 async function extraerTexto(buffer: Buffer, formato: FormatoMemoria): Promise<{ texto: string; paginas: number }> {
   switch (formato) {
     case "rtf": {
-      const texto = extraerTextoRtf(buffer);
+      const textoRtf = extraerTextoRtf(buffer);
+      const texto = enriquecerTextoRtfConTablas(buffer, textoRtf);
       return { texto, paginas: Math.max(1, Math.ceil(texto.length / 3000)) };
     }
     case "doc_binario": {

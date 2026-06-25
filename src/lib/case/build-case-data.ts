@@ -9,6 +9,7 @@ import type {
 import { extraerPropuestaAplicacion, extraerVinculadas } from "@/lib/parsers/memoria/extractors";
 import { mapCalcisReservaTracked } from "@/lib/tracking/excel";
 
+/** Excel → CaseData.excel (solo metadatos numéricos para validación; no alimenta la vista). */
 function mapCalcisFromLibro(libro?: LibroCierre): CalcisExcel | undefined {
   if (libro?.calcis) {
     const c = libro.calcis;
@@ -82,17 +83,13 @@ export interface BuildCaseDataInput {
 
 
 function memoriaToMemoryBlock(
-
   memoria: MemoriaNormalizada,
-
   ejercicioRef: number
-
 ): CaseData["memory"] {
-
   const ejercicio = memoria.datosClave?.ejercicio ?? ejercicioRef;
 
+  // Estructura 100 % Word: apartados, tablas, texto y cifras provienen del parseo de la memoria.
   return {
-
     sections: memoria.apartados,
 
     tables: memoria.tablas ?? [],
@@ -177,7 +174,6 @@ export function buildCaseData(input: BuildCaseDataInput): CaseData {
 
 
   if (input.memoria) {
-
     data.memory = memoriaToMemoryBlock(input.memoria, input.ejercicio);
 
     const memoriaYear = input.memoria.datosClave?.ejercicio;

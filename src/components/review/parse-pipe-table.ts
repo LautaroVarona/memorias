@@ -21,16 +21,16 @@ export function cellLooksNumeric(cell: string): boolean {
   return /^[\d\s.,\-–—()+€%]+$/.test(t);
 }
 
-function rowHasNumericValues(cells: string[]): boolean {
-  return cells.some(cellLooksNumeric);
+function rowHasContent(cells: string[]): boolean {
+  return cells.some((c) => c.trim().length >= 1);
 }
 
 function filterEmptyDataRows(rows: string[][]): string[][] {
   if (rows.length === 0) return rows;
   const [header, ...body] = rows;
-  const filteredBody = body.filter(rowHasNumericValues);
+  const filteredBody = body.filter(rowHasContent);
   if (filteredBody.length === 0) {
-    return rowHasNumericValues(header) ? [header] : [];
+    return rowHasContent(header) ? [header] : [];
   }
   return [header, ...filteredBody];
 }

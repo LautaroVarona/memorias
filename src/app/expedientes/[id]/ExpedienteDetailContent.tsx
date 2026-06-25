@@ -148,15 +148,34 @@ export function ExpedienteDetailContent() {
   const warnings = data.score?.warnings ?? data.resumen.warning;
   const memoriaSections = data.caseData?.memory?.sections ?? [];
   const priorMemoriaSections = data.caseData?.priorYear?.memory?.sections ?? [];
-  const ejercicioMemoriaActual = data.caseData?.memory?.keyData?.ejercicio;
-  const ejercicioMemoriaAnterior = data.caseData?.priorYear?.memory?.keyData?.ejercicio;
+  const ejercicioResuelto =
+    data.caseData?.metadata?.ejercicio && data.caseData.metadata.ejercicio > 0
+      ? data.caseData.metadata.ejercicio
+      : data.ejercicio;
+  const ejercicioComparativaActual = ejercicioResuelto > 0 ? ejercicioResuelto : undefined;
+  const ejercicioComparativaAnterior =
+    data.caseData?.priorYear?.ejercicio ??
+    (ejercicioComparativaActual !== undefined ? ejercicioComparativaActual - 1 : undefined);
+  const ejercicioLabel =
+    ejercicioResuelto > 0 ? `Ejercicio ${ejercicioResuelto}` : "Ejercicio pendiente";
 
   return (
     <div className="mx-auto max-w-[min(100%,90rem)] space-y-8 px-4 pb-12 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link href="/" className="text-sm text-slate-500 hover:text-slate-800">
-          ← Expedientes
-        </Link>
+        <div className="min-w-0">
+          <Link href="/" className="text-sm text-slate-500 hover:text-slate-800">
+            ← Expedientes
+          </Link>
+          <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight text-slate-900">
+            {data.cliente}
+          </h1>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {ejercicioLabel}
+            {data.tipoEmpresa && (
+              <span className="ml-1.5 capitalize text-slate-400">· {data.tipoEmpresa}</span>
+            )}
+          </p>
+        </div>
         <div className="flex flex-wrap gap-2">
           <Link
             href={`/expedientes/${id}/rules`}
@@ -231,20 +250,13 @@ export function ExpedienteDetailContent() {
 
       {hasResults ? (
         <ReviewDashboard
-          cliente={data.cliente}
-          ejercicio={data.ejercicio}
-          tipoEmpresa={data.tipoEmpresa}
+          ejercicio={ejercicioResuelto}
           archivos={data.archivos}
           validaciones={data.validaciones as ValidacionView[]}
           memoriaSections={memoriaSections}
           priorMemoriaSections={priorMemoriaSections}
-          ejercicioComparativaActual={ejercicioMemoriaActual}
-          ejercicioComparativaAnterior={ejercicioMemoriaAnterior}
-          score={data.score?.score}
-          estado={data.score?.globalEstado ?? data.score?.estado}
-          motivoGlobal={data.score?.motivoGlobal}
-          errores={errores}
-          warnings={warnings}
+          ejercicioComparativaActual={ejercicioComparativaActual}
+          ejercicioComparativaAnterior={ejercicioComparativaAnterior}
         />
       ) : (
         <div className="space-y-6">

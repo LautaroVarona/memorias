@@ -2,12 +2,10 @@
 
 import { useCallback, useState } from "react";
 import type { ApartadoMemoria } from "@/types/domain";
-import type { GlobalEstado } from "@/types/case-data";
 import type { ValidacionView } from "./types";
 import { ApartadoReviewPanel } from "./ApartadoReviewPanel";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { DocumentsBlock } from "./DocumentsBlock";
-import { ExpedienteHeader } from "./ExpedienteHeader";
 import { IssueCard } from "./IssueCard";
 import type { SeverityFilter } from "./group-by-apartado";
 import {
@@ -27,37 +25,23 @@ interface ArchivoDoc {
 }
 
 interface ReviewDashboardProps {
-  cliente: string;
   ejercicio: number;
-  tipoEmpresa?: string | null;
   archivos: ArchivoDoc[];
   validaciones: ValidacionView[];
   memoriaSections?: ApartadoMemoria[];
   priorMemoriaSections?: ApartadoMemoria[];
   ejercicioComparativaActual?: number;
   ejercicioComparativaAnterior?: number;
-  score?: number;
-  estado?: GlobalEstado | "critico";
-  motivoGlobal?: string;
-  errores: number;
-  warnings: number;
 }
 
 export function ReviewDashboard({
-  cliente,
   ejercicio,
-  tipoEmpresa,
   archivos,
   validaciones,
   memoriaSections,
   priorMemoriaSections,
   ejercicioComparativaActual,
   ejercicioComparativaAnterior,
-  score,
-  estado,
-  motivoGlobal,
-  errores,
-  warnings,
 }: ReviewDashboardProps) {
   const filtered = filterConflictingPasses(validaciones);
   const criticos = filtered.filter(isCritical).filter((v) => !isInterannualStatOnly(v.ruleId) && !isExpedienteLevelOnly(v.ruleId));
@@ -74,19 +58,6 @@ export function ReviewDashboard({
 
   return (
     <div className="space-y-4">
-      <ExpedienteHeader
-        cliente={cliente}
-        ejercicio={ejercicio}
-        tipoEmpresa={tipoEmpresa}
-        score={score}
-        estado={estado}
-        motivoGlobal={motivoGlobal}
-        errores={errores}
-        warnings={warnings}
-        activeFilter={byApartado ? incidentFilter : undefined}
-        onFilterIncidents={byApartado ? handleIncidentFilter : undefined}
-      />
-
       <DocumentsBlock archivos={archivos} ejercicio={ejercicio} />
 
       {byApartado ? (

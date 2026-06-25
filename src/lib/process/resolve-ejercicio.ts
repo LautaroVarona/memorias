@@ -6,7 +6,7 @@ export interface ResolveEjercicioInput {
   expedienteEjercicio?: number;
 }
 
-/** Año de referencia del expediente: libro de cierre → máximo detectado en memorias → dato manual. */
+/** Año de referencia del expediente: el más reciente entre libro, memorias y dato manual. */
 export function resolveEjercicioActual(input: ResolveEjercicioInput): number {
   const { libroEjercicio, memoriasEjercicios, expedienteEjercicio } = input;
   const maxMemoria =
@@ -14,12 +14,44 @@ export function resolveEjercicioActual(input: ResolveEjercicioInput): number {
       ? Math.max(...memoriasEjercicios.filter((y) => y > 0))
       : undefined;
 
-  return libroEjercicio ?? maxMemoria ?? expedienteEjercicio ?? 0;
+  const signals = [libroEjercicio, maxMemoria, expedienteEjercicio].filter(
+    (y): y is number => y !== undefined && y > 0
+  );
+  if (signals.length === 0) return 0;
+  return Math.max(...signals);
 }
 
 export interface AssignedMemorias {
   memoria?: MemoriaNormalizada;
   memoriaAnterior?: MemoriaNormalizada;
+}
+
+function memoriaYear(m: MemoriaNormalizada): number | undefined {
+  const y = m.datosClave.ejercicio;
+  return y !== undefined && y > 0 ? y : undefined;
+}
+
+function ensureChronologicalOrder(assigned: AssignedMemorias): AssignedMemorias {
+  const { memoria, memoriaAnterior } = assigned;
+  if (!memoria || !memoriaAnterior) return assigned;
+  const yAct = memoriaYear(memoria);
+  const yAnt = memoriaYear(memoriaAnterior);
+  if (yAct !== undefined && yAnt !== undefined && yAct < yAnt) {
+    return { memoria: memoriaAnterior, memoriaAnterior: memoria };
+  }
+  return assigned;
+}
+
+function assignByConsecutiveYears(memorias: MemoriaNormalizada[]): AssignedMemorias | undefined {
+  const years = [
+    ...new Set(memorias.map(memoriaYear).filter((y): y is number => y !== undefined)),
+  ].sort((a, b) => b - a);
+  if (years.length < 2 || years[0] !== years[1] + 1) return undefined;
+
+  const memoria = memorias.find((m) => memoriaYear(m) === years[0]);
+  const memoriaAnterior = memorias.find((m) => memoriaYear(m) === years[1]);
+  if (!memoria) return undefined;
+  return { memoria, memoriaAnterior };
 }
 
 /**
@@ -33,7 +65,7 @@ export function assignMemorias(
 
   if (memorias.length === 1) {
     const m = memorias[0];
-    const year = m.datosClave.ejercicio;
+    const year = memoriaYear(m);
     // Solo como anterior si el año detectado coincide con ejercicio-1 del libro
     if (year !== undefined && year === ejercicio - 1 && ejercicio > 0) {
       return { memoriaAnterior: m };
@@ -41,21 +73,24 @@ export function assignMemorias(
     return { memoria: m };
   }
 
-  const ejercicioAnterior = ejercicio - 1;
-  const memoria = memorias.find((m) => m.datosClave.ejercicio === ejercicio);
-  const memoriaAnterior =
-    memorias.find((m) => m.datosClave.ejercicio === ejercicioAnterior) ??
-    memorias.find((m) => m.datosClave.ejercicio !== ejercicio);
+  const byYears = assignByConsecutiveYears(memorias);
+  if (byYears) return byYears;
 
-  if (memoria) return { memoria, memoriaAnterior };
+  const ejercicioAnterior = ejercicio - 1;
+  const memoria = memorias.find((m) => memoriaYear(m) === ejercicio);
+  const memoriaAnterior =
+    memorias.find((m) => memoriaYear(m) === ejercicioAnterior) ??
+    memorias.find((m) => memoriaYear(m) !== ejercicio);
+
+  if (memoria) return ensureChronologicalOrder({ memoria, memoriaAnterior });
 
   const ordenadas = [...memorias].sort(
-    (a, b) => (b.datosClave.ejercicio ?? 0) - (a.datosClave.ejercicio ?? 0)
+    (a, b) => (memoriaYear(b) ?? 0) - (memoriaYear(a) ?? 0)
   );
-  return {
+  return ensureChronologicalOrder({
     memoria: ordenadas[0],
     memoriaAnterior: ordenadas.find((m) => m !== ordenadas[0]),
-  };
+  });
 }
 
 export interface DocMeta {
@@ -83,6 +118,18 @@ export function assignMemoriaArchivos(
       return { anterior: m };
     }
     return { principal: m };
+  }
+
+  const metaYears = [
+    ...new Set(
+      memorias.map((m) => m.meta.ejercicio).filter((y): y is number => y !== undefined && y > 0)
+    ),
+  ].sort((a, b) => b - a);
+  if (metaYears.length >= 2 && metaYears[0] === metaYears[1] + 1) {
+    return {
+      principal: memorias.find((m) => m.meta.ejercicio === metaYears[0]),
+      anterior: memorias.find((m) => m.meta.ejercicio === metaYears[1]),
+    };
   }
 
   const byYear = (y: number) => memorias.find((m) => m.meta.ejercicio === y);

@@ -1,6 +1,7 @@
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
 import { withEuro, withText, fromTrackingValue } from "@/lib/rules/helpers/evidence";
 import { formatEuro } from "@/lib/rules/helpers/accounts";
+import { validateNumbersWithExcel } from "@/lib/validation/validate-numbers-with-excel";
 import type { CaseData } from "@/types/case-data";
 import { unwrapValue } from "@/types/tracking";
 import type { RuleDefinition } from "../types";
@@ -20,6 +21,7 @@ export const distribucionRules: RuleDefinition[] = [
       }
 
       const propuesta = data.memory?.propuestaAplicacion;
+      const validacion = validateNumbersWithExcel(data);
       const excelReserva = data.excel?.calcis?.reservaCapitalizacion ?? undefined;
       const memReserva = unwrapValue(propuesta?.reservaIndisponible);
       const tieneApartado = propuesta?.tieneApartado ?? false;
@@ -43,7 +45,10 @@ export const distribucionRules: RuleDefinition[] = [
 
       if (excelReserva !== undefined && memReserva !== undefined) {
         const excelVal = unwrapValue(excelReserva)!;
-        const cuadra = withinTolerance(excelVal, memReserva, 1);
+        const cuadra =
+          validacion.reservaCapitalizacion?.comparable === true
+            ? validacion.reservaCapitalizacion.cuadra
+            : withinTolerance(excelVal, memReserva, 1);
         return {
           passed: cuadra,
           severity: cuadra ? undefined : "error",

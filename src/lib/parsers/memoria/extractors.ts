@@ -185,12 +185,31 @@ export function extraerApartados(texto: string): ApartadoMemoria[] {
   const lineas = texto.split(/\n/).map((l) => l.trim());
   const apartados: ApartadoMemoria[] = [];
   let current: ApartadoMemoria | null = null;
+  const preambuloLineas: string[] = [];
+  const numerosApartadoVistos = new Set<number>();
+  let maxNumeroApartado = 0;
+
+  function appendLinea(linea: string) {
+    if (current) {
+      current.contenido += (current.contenido ? "\n" : "") + linea;
+    } else {
+      preambuloLineas.push(linea);
+    }
+  }
 
   for (const linea of lineas) {
     if (!linea) continue;
     const heading = !linea.includes("|") ? parseMainApartadoHeading(linea) : null;
-    if (heading) {
+
+    // Ignorar renumeraciones internas (p. ej. un segundo "03 Riesgo de mercado" en anexos)
+    const esApartadoPrincipal =
+      heading &&
+      (!numerosApartadoVistos.has(heading.numero) || heading.numero > maxNumeroApartado);
+
+    if (esApartadoPrincipal && heading) {
       if (current) apartados.push(current);
+      numerosApartadoVistos.add(heading.numero);
+      maxNumeroApartado = Math.max(maxNumeroApartado, heading.numero);
       current = {
         id: String(heading.numero).padStart(2, "0"),
         titulo: heading.titulo,
@@ -198,17 +217,8 @@ export function extraerApartados(texto: string): ApartadoMemoria[] {
         obligatorio: esObligatorio(heading.titulo),
         numero: heading.numero,
       };
-    } else if (current) {
-      current.contenido += (current.contenido ? "\n" : "") + linea;
     } else {
-      // Preambulo antes del primer apartado numerado
-      current = {
-        id: "00",
-        titulo: "Preámbulo",
-        contenido: linea,
-        obligatorio: false,
-        numero: 0,
-      };
+      appendLinea(linea);
     }
   }
 
@@ -218,9 +228,14 @@ export function extraerApartados(texto: string): ApartadoMemoria[] {
     apartados.push({
       id: "sec-1",
       titulo: "Documento completo",
-      contenido: texto,
+      contenido: [preambuloLineas.join("\n"), texto].filter(Boolean).join("\n"),
       obligatorio: false,
     });
+  } else if (preambuloLineas.length > 0) {
+    const primerApartado = apartados[0];
+    primerApartado.contenido = [preambuloLineas.join("\n"), primerApartado.contenido]
+      .filter(Boolean)
+      .join("\n");
   }
 
   return apartados;
