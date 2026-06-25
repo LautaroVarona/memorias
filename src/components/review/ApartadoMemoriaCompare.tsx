@@ -311,8 +311,21 @@ function FlatCompareContent({
   highlightQuery?: string;
   emphasizeStructural?: boolean;
 }) {
-  const textLines = blocks.filter((b): b is { type: "text"; line: ComparedLine } => b.type === "text");
-  const tables = blocks.filter((b): b is { type: "table"; table: ComparedTable } => b.type === "table");
+  // Renderiza los bloques en su ORDEN original (texto y tablas intercalados),
+  // agrupando líneas de texto consecutivas en una rejilla de 2 columnas.
+  const grupos: (
+    | { type: "text"; lines: ComparedLine[] }
+    | { type: "table"; table: ComparedTable }
+  )[] = [];
+  for (const block of blocks) {
+    if (block.type === "text") {
+      const last = grupos[grupos.length - 1];
+      if (last?.type === "text") last.lines.push(block.line);
+      else grupos.push({ type: "text", lines: [block.line] });
+    } else {
+      grupos.push({ type: "table", table: block.table });
+    }
+  }
 
   return (
     <>
@@ -321,28 +334,31 @@ function FlatCompareContent({
         <div className="text-right text-blue-900">{currentLabel}</div>
       </div>
 
-      {textLines.length > 0 && (
-        <div className="grid grid-cols-2 gap-x-6 text-[13px] leading-relaxed">
-          {textLines.map((block, i) => (
-            <DiffRow
-              key={i}
-              line={block.line}
-              highlightQuery={highlightQuery}
-              emphasizeStructural={emphasizeStructural}
-            />
-          ))}
-        </div>
+      {grupos.map((grupo, gi) =>
+        grupo.type === "text" ? (
+          <div
+            key={`txt-${gi}`}
+            className="grid grid-cols-2 gap-x-6 text-[13px] leading-relaxed"
+          >
+            {grupo.lines.map((line, i) => (
+              <DiffRow
+                key={i}
+                line={line}
+                highlightQuery={highlightQuery}
+                emphasizeStructural={emphasizeStructural}
+              />
+            ))}
+          </div>
+        ) : (
+          <MemoriaCompareTable
+            key={`tbl-${gi}`}
+            table={grupo.table}
+            priorLabel={priorLabel}
+            currentLabel={currentLabel}
+            emphasizeStructural={emphasizeStructural}
+          />
+        )
       )}
-
-      {tables.map((block, i) => (
-        <MemoriaCompareTable
-          key={`tbl-${i}`}
-          table={block.table}
-          priorLabel={priorLabel}
-          currentLabel={currentLabel}
-          emphasizeStructural={emphasizeStructural}
-        />
-      ))}
     </>
   );
 }

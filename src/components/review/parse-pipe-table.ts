@@ -8,6 +8,18 @@ function isTableLine(line: string): boolean {
   return trimmed.split("|").filter((c) => c.trim().length > 0).length >= 2;
 }
 
+/**
+ * Cabecera de tabla comparativa anual: celdas (salvo la 1ª) son años "2024" o
+ * "IMPORTE 2024". Permite separar dos tablas contiguas sin texto entre medias
+ * (p. ej. BASE DE REPARTO seguida de DISTRIBUCIÓN).
+ */
+function isAnnualHeaderRow(cells: string[]): boolean {
+  if (cells.length < 2) return false;
+  const rest = cells.slice(1).filter((c) => c.length > 0);
+  if (rest.length === 0) return false;
+  return rest.every((c) => /^(19|20)\d{2}$/.test(c) || /\bimporte\s+(19|20)\d{2}\b/i.test(c));
+}
+
 export function parseTableRow(line: string): string[] {
   return line
     .split("|")
@@ -63,6 +75,16 @@ export function segmentMemoriaContent(text: string): MemoriaSegment[] {
   for (const line of lines) {
     if (isTableLine(line)) {
       flushText();
+      // Dos tablas contiguas (sin texto): una nueva cabecera anual tras filas de
+      // datos inicia una tabla independiente en vez de fusionarlas.
+      const cells = parseTableRow(line);
+      if (
+        tableBuffer.length > 0 &&
+        isAnnualHeaderRow(cells) &&
+        tableBuffer.some((l) => !isAnnualHeaderRow(parseTableRow(l)))
+      ) {
+        flushTable();
+      }
       tableBuffer.push(line);
     } else {
       flushTable();

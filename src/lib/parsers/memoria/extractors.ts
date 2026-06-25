@@ -242,108 +242,169 @@ export function extraerApartados(texto: string): ApartadoMemoria[] {
   return apartados;
 }
 
+/** Fila de tabla en texto normalizado: contiene "|" y al menos 2 celdas con contenido. */
+function esLineaTabla(linea: string): boolean {
+  if (!linea.includes("|")) return false;
+  return linea.split("|").filter((c) => c.trim().length > 0).length >= 2;
+}
+
+function celdasDeLinea(linea: string): string[] {
+  const cells = linea.split("|").map((c) => c.replace(/[\u0000-\u001F\u007F]/g, "").trim());
+  while (cells.length > 1 && cells[cells.length - 1] === "") cells.pop();
+  return cells;
+}
+
+/**
+ * Cabecera de tabla comparativa anual: sus celdas (salvo la primera) son años
+ * "2024" o etiquetas "IMPORTE 2024". Permite separar dos tablas contiguas
+ * (p. ej. BASE DE REPARTO seguida de DISTRIBUCIÓN) sin texto entre medias.
+ */
+function esCabeceraAnual(cells: string[]): boolean {
+  if (cells.length < 2) return false;
+  const resto = cells.slice(1).filter((c) => c.length > 0);
+  if (resto.length === 0) return false;
+  return resto.every(
+    (c) => /^(19|20)\d{2}$/.test(c) || /\bimporte\s+(19|20)\d{2}\b/i.test(c)
+  );
+}
+
+/**
+ * Segmenta texto normalizado (celdas separadas por " | ") en bloques inline
+ * texto/tabla en orden de aparición. Inicia una tabla nueva cuando aparece una
+ * cabecera anual tras filas de datos, evitando fusionar tablas independientes.
+ */
+export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
+  const bloques: MemoriaBloque[] = [];
+  let textBuffer: string[] = [];
+  let tabla: string[][] = [];
+
+  const flushText = () => {
+    const content = textBuffer.join("\n").trim();
+    textBuffer = [];
+    if (content) bloques.push({ type: "text", content });
+  };
+
+  const flushTabla = () => {
+    if (tabla.length > 0) bloques.push({ type: "table", content: tabla });
+    tabla = [];
+  };
+
+  for (const lineaRaw of texto.split(/\n/)) {
+    const linea = lineaRaw.trim();
+    if (esLineaTabla(linea)) {
+      flushText();
+      const cells = celdasDeLinea(linea);
+      if (tabla.length > 0 && esCabeceraAnual(cells) && tabla.some((r) => !esCabeceraAnual(r))) {
+        flushTabla();
+      }
+      tabla.push(cells);
+    } else {
+      flushTabla();
+      textBuffer.push(linea);
+    }
+  }
+
+  flushTabla();
+  flushText();
+  return bloques;
+}
+
+/** Serializa una lista de bloques a texto, separando cada bloque por una línea en blanco. */
+function serializarBloques(bloques: MemoriaBloque[]): string {
+  return bloques
+    .map((b) =>
+      b.type === "text" ? b.content.trim() : b.content.map((fila) => fila.join(" | ")).join("\n")
+    )
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * Construye los apartados a partir del flujo de bloques inline, manteniendo el
+ * orden exacto (texto/tabla/texto…). Las tablas se conservan como entidades
+ * independientes y el `contenido` se serializa con una línea en blanco entre
+ * bloques para que el render del frontend las mantenga separadas e inline.
+ */
 export function extraerApartadosDesdeBloques(bloques: MemoriaBloque[]): ApartadoMemoria[] {
   const apartados: ApartadoMemoria[] = [];
-  const preambuloBloques: MemoriaBloque[] = [];
+  const preambulo: MemoriaBloque[] = [];
   let current: ApartadoMemoria | null = null;
   const numerosApartadoVistos = new Set<number>();
   let maxNumeroApartado = 0;
 
-  const ensureCurrentBlocks = () => {
-    if (!current) return;
-    if (!current.bloques) current.bloques = [];
+  let parrafoPend: string[] = [];
+
+  const destino = (): MemoriaBloque[] => (current ? current.bloques! : preambulo);
+
+  const flushParrafo = () => {
+    const content = parrafoPend.join("\n").trim();
+    parrafoPend = [];
+    if (content) destino().push({ type: "text", content });
   };
 
-  const appendBloque = (bloque: MemoriaBloque) => {
-    if (current) {
-      ensureCurrentBlocks();
-      const last = current.bloques![current.bloques!.length - 1];
-      if (bloque.type === "text" && last?.type === "text") {
-        last.content = [last.content, bloque.content].filter(Boolean).join("\n");
-      } else {
-        current.bloques!.push(bloque);
-      }
-    } else {
-      const last = preambuloBloques[preambuloBloques.length - 1];
-      if (bloque.type === "text" && last?.type === "text") {
-        last.content = [last.content, bloque.content].filter(Boolean).join("\n");
-      } else {
-        preambuloBloques.push(bloque);
-      }
-    }
-  };
-
-  const tryOpenHeading = (linea: string): boolean => {
-    const heading = parseMainApartadoHeading(linea);
-    if (!heading || linea.includes("|")) return false;
-    const esApartadoPrincipal =
-      !numerosApartadoVistos.has(heading.numero) || heading.numero > maxNumeroApartado;
-    if (!esApartadoPrincipal) return false;
-
+  const abrirApartado = (numero: number, titulo: string) => {
+    flushParrafo();
     if (current) apartados.push(current);
-    numerosApartadoVistos.add(heading.numero);
-    maxNumeroApartado = Math.max(maxNumeroApartado, heading.numero);
+    numerosApartadoVistos.add(numero);
+    maxNumeroApartado = Math.max(maxNumeroApartado, numero);
     current = {
-      id: String(heading.numero).padStart(2, "0"),
-      titulo: heading.titulo,
+      id: String(numero).padStart(2, "0"),
+      titulo,
       contenido: "",
       bloques: [],
-      obligatorio: esObligatorio(heading.titulo),
-      numero: heading.numero,
+      obligatorio: esObligatorio(titulo),
+      numero,
     };
-    return true;
   };
 
   for (const bloque of bloques) {
-    if (bloque.type === "text") {
-      const lineas = bloque.content.split(/\n/);
-      for (const lineaRaw of lineas) {
-        const linea = lineaRaw.trim();
-        if (!linea) continue;
-        if (!tryOpenHeading(linea)) {
-          appendBloque({ type: "text", content: linea });
-        }
+    if (bloque.type === "table") {
+      flushParrafo();
+      destino().push({ type: "table", content: bloque.content.map((fila) => [...fila]) });
+      continue;
+    }
+
+    for (const lineaRaw of bloque.content.split(/\n/)) {
+      const linea = lineaRaw.trim();
+      if (!linea) {
+        flushParrafo();
+        continue;
       }
-    } else {
-      appendBloque({ type: "table", content: bloque.content.map((fila) => [...fila]) });
+      const heading = !linea.includes("|") ? parseMainApartadoHeading(linea) : null;
+      const esApartadoPrincipal =
+        heading &&
+        (!numerosApartadoVistos.has(heading.numero) || heading.numero > maxNumeroApartado);
+      if (esApartadoPrincipal && heading) {
+        abrirApartado(heading.numero, heading.titulo);
+      } else {
+        parrafoPend.push(linea);
+      }
     }
   }
 
+  flushParrafo();
   if (current) apartados.push(current);
 
-  const consolidarContenido = (target: ApartadoMemoria, bloquesFuente: MemoriaBloque[]) => {
-    const propios = [...(target.bloques ?? []), ...bloquesFuente];
-    target.bloques = propios;
-    target.contenido = propios
-      .map((b) => (b.type === "text" ? b.content : b.content.map((fila) => fila.join(" | ")).join("\n")))
-      .filter(Boolean)
-      .join("\n");
-  };
-
   if (apartados.length === 0) {
-    const unico: ApartadoMemoria = {
-      id: "sec-1",
-      titulo: "Documento completo",
-      contenido: "",
-      bloques: [],
-      obligatorio: false,
-    };
-    consolidarContenido(unico, [...preambuloBloques]);
-    return [unico];
+    return [
+      {
+        id: "sec-1",
+        titulo: "Documento completo",
+        contenido: serializarBloques(preambulo),
+        bloques: preambulo,
+        obligatorio: false,
+      },
+    ];
+  }
+
+  if (preambulo.length > 0) {
+    const primer = apartados[0];
+    primer.bloques = [...preambulo, ...(primer.bloques ?? [])];
   }
 
   for (const apartado of apartados) {
-    consolidarContenido(apartado, []);
-  }
-
-  if (preambuloBloques.length > 0) {
-    const primer = apartados[0];
-    const existentes = primer.bloques ?? [];
-    primer.bloques = [...preambuloBloques, ...existentes];
-    primer.contenido = primer.bloques
-      .map((b) => (b.type === "text" ? b.content : b.content.map((fila) => fila.join(" | ")).join("\n")))
-      .filter(Boolean)
-      .join("\n");
+    apartado.contenido = serializarBloques(apartado.bloques ?? []);
   }
 
   return apartados;

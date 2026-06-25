@@ -3,14 +3,13 @@ import type { MemoriaNormalizada } from "@/types/domain";
 import {
   analizarFormal,
   contarPaginasPdf,
-  extraerApartados,
   extraerApartadosDesdeBloques,
   extraerAniosMencionados,
   extraerCifras,
   extraerDatosClave,
   extraerStatements,
-  extraerTablas,
   extraerTablasDesdeBloques,
+  segmentarBloquesDeTexto,
 } from "./extractors";
 import { esRtf, extraerBloquesRtf, extraerTextoRtf } from "./rtf";
 import type { MemoriaBloque } from "@/types/domain";
@@ -144,6 +143,10 @@ export async function parseMemoria(
   const formato = detectarFormatoMemoria(buffer) ?? (tipo === "memoria_pdf" ? "pdf" : "docx");
   const { texto: bruto, paginas } = await extraerTexto(buffer, formato);
   const texto = normalizarTexto(bruto);
+
+  // Flujo de bloques inline (texto/tabla) en orden de aparición:
+  //  - RTF (A3SOC): se reconstruye desde los controles \\trowd/\\cell/\\row/\\lastrow.
+  //  - resto: se segmenta el texto normalizado (celdas " | "), separando tablas anuales.
   const bloquesDocumento: MemoriaBloque[] =
     formato === "rtf"
       ? extraerBloquesRtf(buffer).map((b) =>
@@ -154,11 +157,10 @@ export async function parseMemoria(
                 content: b.content.map((fila) => fila.map((celda) => limpiarCeldaTabular(celda))),
               }
         )
-      : [{ type: "text", content: texto }];
+      : segmentarBloquesDeTexto(texto);
 
-  const apartados = bloquesDocumento.length > 0 ? extraerApartadosDesdeBloques(bloquesDocumento) : extraerApartados(texto);
-  const tablas =
-    bloquesDocumento.length > 0 ? extraerTablasDesdeBloques(bloquesDocumento, texto) : extraerTablas(texto);
+  const apartados = extraerApartadosDesdeBloques(bloquesDocumento);
+  const tablas = extraerTablasDesdeBloques(bloquesDocumento, texto);
   const cifras = extraerCifras(texto);
   const statements = extraerStatements(texto);
   const formal = analizarFormal(texto);

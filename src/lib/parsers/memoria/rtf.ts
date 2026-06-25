@@ -327,7 +327,16 @@ export function extraerTextoRtf(buffer: Buffer): string {
 
 /**
  * Extrae bloques inline en orden estricto de aparición.
- * Mantiene tablas como entidades independientes y respeta columnas por \\cell/\\u0007.
+ *
+ * Modelo de tabla del generador A3SOC (clave para fidelidad de columnas):
+ *  - `\trowd` define (y RE-define) la fila; aparece DOS veces por fila (antes y
+ *    después de las celdas), por lo que NO debe descartar la fila en curso.
+ *  - `\cell` cierra una celda; `\row` cierra la fila.
+ *  - `\lastrow` marca la última fila: al cerrarla con `\row` se emite la tabla
+ *    completa, lo que mantiene tablas contiguas (BASE DE REPARTO / DISTRIBUCIÓN)
+ *    como entidades independientes en vez de fusionarlas.
+ *  - `\intbl` indica que el párrafo pertenece a la tabla; `\pard` lo reinicia.
+ *    Si llega texto real fuera de un párrafo `\intbl`, la tabla ha terminado.
  */
 export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
   const s = buffer.toString("latin1");
@@ -341,7 +350,9 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
   let celdaActual = "";
   let filaActual: string[] = [];
   let tablaActual: string[][] = [];
-  let filaActiva = false;
+  let inTable = false; // dentro de la región de una tabla (entre \trowd y su cierre)
+  let inIntbl = false; // el párrafo actual está marcado \intbl
+  let pendingClose = false; // \lastrow visto: cerrar la tabla al próximo \row
 
   const limpiarCelda = (raw: string) => raw.replace(/[\u0000-\u001F\u007F]/g, "").replace(/\s+/g, " ").trim();
 
@@ -352,42 +363,62 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
       .join("\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
-    if (content) {
-      bloques.push({ type: "text", content });
-    }
+    if (content) bloques.push({ type: "text", content });
     textBuffer = "";
   };
 
-  const flushTable = () => {
+  const emitTable = () => {
     if (tablaActual.length > 0) {
-      const normalizada = tablaActual
+      const limpia = tablaActual
         .map((fila) => fila.map(limpiarCelda))
         .filter((fila) => fila.some((c) => c.length > 0));
-      if (normalizada.length > 0) {
-        bloques.push({ type: "table", content: normalizada });
+      // A3SOC añade una celda vacía final por fila: recorta columnas finales vacías en todas.
+      let ancho = 0;
+      for (const fila of limpia) {
+        let ultima = -1;
+        for (let k = 0; k < fila.length; k++) if (fila[k].length > 0) ultima = k;
+        ancho = Math.max(ancho, ultima + 1);
       }
+      const normalizada = limpia.map((fila) => fila.slice(0, Math.max(ancho, 1)));
+      if (normalizada.length > 0) bloques.push({ type: "table", content: normalizada });
     }
     tablaActual = [];
+    filaActual = [];
+    celdaActual = "";
   };
 
-  const flushCelda = () => {
+  const pushCelda = () => {
     filaActual.push(celdaActual);
     celdaActual = "";
   };
 
-  const flushFila = () => {
-    if (celdaActual.length > 0 || filaActual.length > 0) flushCelda();
-    if (filaActual.some((c) => limpiarCelda(c).length > 0)) {
-      tablaActual.push([...filaActual]);
-    }
+  const pushFila = () => {
+    if (celdaActual.length > 0 || filaActual.length > 0) pushCelda();
+    if (filaActual.some((c) => limpiarCelda(c).length > 0)) tablaActual.push([...filaActual]);
     filaActual = [];
     celdaActual = "";
-    filaActiva = false;
   };
 
-  const appendText = (value: string) => {
-    if (tablaActual.length > 0 && !filaActiva) {
-      flushTable();
+  /** Cierra la tabla en curso (fila pendiente incluida) y vuelve a modo texto. */
+  const closeTable = () => {
+    if (filaActual.length > 0 || celdaActual.trim().length > 0) pushFila();
+    emitTable();
+    inTable = false;
+    inIntbl = false;
+    pendingClose = false;
+  };
+
+  const routeText = (value: string) => {
+    if (inTable) {
+      if (inIntbl) {
+        celdaActual += value;
+        return;
+      }
+      // Texto real fuera de un párrafo \intbl ⇒ la tabla terminó.
+      if (value.trim().length === 0) return; // espacios sueltos entre control words
+      closeTable();
+      textBuffer += value;
+      return;
     }
     textBuffer += value;
   };
@@ -420,9 +451,7 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
     if (c === "\\") {
       const next = s[i + 1];
       if (next === "'") {
-        const decoded = String.fromCharCode(parseInt(s.substr(i + 2, 2), 16));
-        if (filaActiva) celdaActual += decoded;
-        else appendText(decoded);
+        routeText(String.fromCharCode(parseInt(s.substr(i + 2, 2), 16)));
         i += 4;
         continue;
       }
@@ -441,36 +470,48 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
         if (DESTINATIONS_TO_SKIP.has(word)) {
           skipUntil = depth;
         } else if (word === "trowd") {
-          if (textBuffer.trim()) flushText();
-          filaActiva = true;
-          celdaActual = "";
-          filaActual = [];
+          // Inicia tabla solo si no estábamos en una; las re-definiciones por fila
+          // (segundo \trowd antes de \row) no deben descartar la fila en curso.
+          if (!inTable) {
+            if (textBuffer.trim()) flushText();
+            inTable = true;
+            inIntbl = false;
+            pendingClose = false;
+            filaActual = [];
+            celdaActual = "";
+            tablaActual = [];
+          }
+        } else if (word === "intbl") {
+          inTable = true;
+          inIntbl = true;
+        } else if (word === "pard" || word === "sectd") {
+          inIntbl = false;
         } else if (word === "cell" || word === "nestcell") {
-          if (filaActiva) flushCelda();
+          if (inTable) pushCelda();
+        } else if (word === "lastrow") {
+          if (inTable) pendingClose = true;
         } else if (word === "row" || word === "nestrow") {
-          flushFila();
+          if (inTable) {
+            pushFila();
+            if (pendingClose) closeTable();
+            else inIntbl = false;
+          }
         } else if (word === "par" || word === "line") {
-          if (filaActiva) celdaActual += " ";
-          else appendText("\n");
+          if (inTable && inIntbl) celdaActual += " ";
+          else if (!inTable) textBuffer += "\n";
         } else if (word === "tab") {
-          if (filaActiva) celdaActual += "\t";
-          else appendText("\t");
+          if (inTable && inIntbl) celdaActual += "\t";
+          else if (!inTable) textBuffer += "\t";
         } else if (word === "u" && m[2]) {
           const code = parseInt(m[2], 10);
-          const decoded = String.fromCharCode(code < 0 ? code + 65536 : code);
-          if (filaActiva) celdaActual += decoded;
-          else appendText(decoded);
+          routeText(String.fromCharCode(code < 0 ? code + 65536 : code));
           pendingUnicodeFallbackSkip = true;
-        } else if (word === "pard" && tablaActual.length > 0 && !filaActiva) {
-          flushTable();
         }
         i += m[0].length;
         continue;
       }
 
-      const escaped = s[i + 1] ?? "";
-      if (filaActiva) celdaActual += escaped;
-      else appendText(escaped);
+      routeText(s[i + 1] ?? "");
       i += 2;
       continue;
     }
@@ -480,13 +521,11 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
       continue;
     }
 
-    if (filaActiva) celdaActual += c;
-    else appendText(c);
+    routeText(c);
     i++;
   }
 
-  flushFila();
-  flushTable();
+  closeTable();
   flushText();
 
   return bloques;
