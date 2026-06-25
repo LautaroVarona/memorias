@@ -189,7 +189,7 @@ export function IssueCard({ validacion, variant, embedded = false }: IssueCardPr
   const hasComparison = !!(issue.excelValue || issue.memoryValue);
   const memoryApartados = collectMemoryApartados(validacion);
   const apartado = memoryApartados.length === 1 ? memoryApartados[0] : undefined;
-  const showDiff = supportsInterannualDiff(validacion.ruleId);
+  const showDiff = supportsInterannualDiff();
   const hasNarrativeMemoryEvidence = validacion.evidencia.some(
     (ev) => normalizeEvidenceType(ev) === "memory" && evText(ev).length > 0
   );

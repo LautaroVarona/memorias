@@ -1,6 +1,7 @@
 import type { ValidacionView } from "@/components/review/types";
 import { evaluateGlobalClosure } from "@/lib/rules/global-evaluation";
 import { computeCaseScore } from "@/lib/rules/scoring";
+import { filterApartadoOnlyValidaciones } from "@/lib/review/apartado-only";
 import type { CaseData, Evidence } from "@/types/case-data";
 import {
   getArchivoBlob,
@@ -48,10 +49,11 @@ export interface ExpedienteDetail {
     motivoGlobal?: string;
   };
   caseData?: CaseData | null;
+  sections?: Record<string, { current?: string; prior?: string; title?: string }>;
 }
 
 function parseValidaciones(validaciones: Awaited<ReturnType<typeof listValidaciones>>): ValidacionView[] {
-  return validaciones.map((v) => {
+  const mapped = validaciones.map((v) => {
     const raw = JSON.parse(v.evidencia || "[]") as
       | Evidence[]
       | { items?: Evidence[]; diagnosis?: string; tags?: string[] };
@@ -77,6 +79,29 @@ function parseValidaciones(validaciones: Awaited<ReturnType<typeof listValidacio
       tags,
     };
   });
+  return filterApartadoOnlyValidaciones(mapped);
+}
+
+function buildSectionsPayload(caseData: CaseData | null): Record<string, { current?: string; prior?: string; title?: string }> {
+  if (!caseData?.memory?.sections?.length) return {};
+  const out: Record<string, { current?: string; prior?: string; title?: string }> = {};
+  const priorByNum = new Map(
+    (caseData.priorYear?.memory?.sections ?? [])
+      .filter((s) => s.numero !== undefined)
+      .map((s) => [String(s.numero).padStart(2, "0"), s])
+  );
+
+  for (const sec of caseData.memory.sections) {
+    if (sec.numero === undefined) continue;
+    const num = String(sec.numero).padStart(2, "0");
+    const prior = priorByNum.get(num);
+    out[num] = {
+      title: sec.titulo,
+      current: sec.contenido,
+      prior: prior?.contenido,
+    };
+  }
+  return out;
 }
 
 function buildResumen(validaciones: ValidacionView[]) {
@@ -174,6 +199,7 @@ export async function fetchExpedienteDetail(id: string): Promise<ExpedienteDetai
     resumen,
     score,
     caseData,
+    sections: buildSectionsPayload(caseData),
   };
 }
 

@@ -2,12 +2,34 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteUploadDir } from "@/lib/files";
 import { prisma } from "@/lib/db";
 import { evaluateGlobalClosure } from "@/lib/rules/global-evaluation";
+import { filterApartadoOnlyValidaciones } from "@/lib/review/apartado-only";
 import { computeCaseScore } from "@/lib/rules/scoring";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  function buildSectionsPayload(caseData: import("@/types/case-data").CaseData | null) {
+    if (!caseData?.memory?.sections?.length) return {};
+    const out: Record<string, { current?: string; prior?: string; title?: string }> = {};
+    const priorByNum = new Map(
+      (caseData.priorYear?.memory?.sections ?? [])
+        .filter((s) => s.numero !== undefined)
+        .map((s) => [String(s.numero).padStart(2, "0"), s])
+    );
+    for (const sec of caseData.memory.sections) {
+      if (sec.numero === undefined) continue;
+      const num = String(sec.numero).padStart(2, "0");
+      const prior = priorByNum.get(num);
+      out[num] = {
+        title: sec.titulo,
+        current: sec.contenido,
+        prior: prior?.contenido,
+      };
+    }
+    return out;
+  }
+
   const { id } = await params;
   const expediente = await prisma.expediente.findUnique({
     where: { id },
@@ -22,7 +44,7 @@ export async function GET(
     return NextResponse.json({ error: "Expediente no encontrado" }, { status: 404 });
   }
 
-  const validaciones = expediente.validaciones.map((v) => {
+  const rawValidaciones = expediente.validaciones.map((v) => {
     const raw = JSON.parse(v.evidencia || "[]") as
       | import("@/types/case-data").Evidence[]
       | { items?: import("@/types/case-data").Evidence[]; diagnosis?: string; tags?: string[] };
@@ -41,6 +63,7 @@ export async function GET(
       title: v.title ?? v.ruleId,
     };
   });
+  const validaciones = filterApartadoOnlyValidaciones(rawValidaciones);
 
   const resumen = {
     critical: validaciones.filter((v) => v.severidad === "critical").length,
@@ -52,6 +75,7 @@ export async function GET(
   };
 
   let score = expediente.scoreSnapshot ? JSON.parse(expediente.scoreSnapshot) : null;
+  let sections: Record<string, { current?: string; prior?: string; title?: string }> = {};
   if (!score && validaciones.length > 0) {
     const caseRow = await prisma.datosExtraidos.findFirst({
       where: { expedienteId: id, fuente: "case" },
@@ -60,6 +84,7 @@ export async function GET(
     const caseData = caseRow?.payload
       ? (JSON.parse(caseRow.payload) as import("@/types/case-data").CaseData)
       : null;
+    sections = buildSectionsPayload(caseData);
 
     const ruleResults = validaciones.map((v) => ({
       ruleId: v.ruleId,
@@ -87,7 +112,18 @@ export async function GET(
     score = computeCaseScore(ruleResults, globalEval);
   }
 
-  return NextResponse.json({ ...expediente, validaciones, resumen, score });
+  if (sections && Object.keys(sections).length === 0) {
+    const caseRow = await prisma.datosExtraidos.findFirst({
+      where: { expedienteId: id, fuente: "case" },
+      orderBy: { createdAt: "desc" },
+    });
+    const caseData = caseRow?.payload
+      ? (JSON.parse(caseRow.payload) as import("@/types/case-data").CaseData)
+      : null;
+    sections = buildSectionsPayload(caseData);
+  }
+
+  return NextResponse.json({ ...expediente, validaciones, resumen, score, sections });
 }
 
 export async function DELETE(

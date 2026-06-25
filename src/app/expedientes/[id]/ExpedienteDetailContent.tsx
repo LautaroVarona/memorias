@@ -144,8 +144,6 @@ export function ExpedienteDetailContent() {
   }
 
   const hasResults = data.validaciones.length > 0;
-  const errores = data.score?.errores ?? data.resumen.critical;
-  const warnings = data.score?.warnings ?? data.resumen.warning;
   const memoriaSections = data.caseData?.memory?.sections ?? [];
   const priorMemoriaSections = data.caseData?.priorYear?.memory?.sections ?? [];
   const ejercicioResuelto =

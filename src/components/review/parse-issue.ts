@@ -157,7 +157,7 @@ export function isMemoriaComparisonRule(ruleId: string): boolean {
   return ruleId.startsWith("INTER_") || ruleId.startsWith("NARR_ADV_");
 }
 
-export function supportsInterannualDiff(_ruleId: string): boolean {
+export function supportsInterannualDiff(): boolean {
   return false;
 }
 
