@@ -195,10 +195,17 @@ function expandTextLineToRows(line: ComparedLine): ComparedLine[] {
 }
 
 function flattenBlocksForAlignedDisplay(blocks: ComparedBlock[]): ComparedBlock[] {
-  return blocks.flatMap((block) => {
-    if (block.type === "table") return [block];
-    return expandTextLineToRows(block.line).map((line) => ({ type: "text" as const, line }));
-  });
+  const result: ComparedBlock[] = [];
+  for (const block of blocks) {
+    if (block.type === "table") {
+      result.push(block);
+      continue;
+    }
+    for (const line of expandTextLineToRows(block.line)) {
+      result.push({ type: "text", line });
+    }
+  }
+  return result;
 }
 
 /** Fusiona bloques consecutivos en el lado más largo para alinear memorias con distinta maquetación. */
