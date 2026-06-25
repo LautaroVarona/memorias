@@ -16,9 +16,13 @@ import type {
   TablaMemoria,
 } from "@/types/domain";
 import {
+  celdaEsItemLista,
   debeIniciarNuevaTabla,
   esLineaTabla,
+  esTablaListaPseudo,
+  filasTablaListaAVertical,
   intentarAnexarCeldasParciales,
+  limpiarValorCelda,
   parsearLineaTabla,
   procesarBloqueTabla,
   serializarFilasTabla,
@@ -284,7 +288,13 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
   };
 
   const flushTabla = () => {
-    if (tabla.length > 0) bloques.push(crearBloqueTabla(tabla));
+    if (tabla.length === 0) return;
+    if (esTablaListaPseudo(tabla)) {
+      textBuffer.push(filasTablaListaAVertical(tabla));
+      tabla = [];
+      return;
+    }
+    bloques.push(crearBloqueTabla(tabla));
     tabla = [];
   };
 
@@ -303,7 +313,16 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
       tabla.push(cells);
     } else {
       flushTabla();
-      if (linea) textBuffer.push(linea);
+      if (linea) {
+        if (linea.includes("|")) {
+          const cells = parsearLineaTabla(linea).map(limpiarValorCelda).filter((c) => c.length > 0);
+          if (cells.length >= 2 && cells.every(celdaEsItemLista)) {
+            textBuffer.push(...cells);
+            continue;
+          }
+        }
+        textBuffer.push(linea);
+      }
     }
   }
 

@@ -1,7 +1,11 @@
 import {
+  celdaEsItemLista,
   debeIniciarNuevaTabla,
   detectarSubconcepto,
   esLineaTabla,
+  esTablaListaPseudo,
+  filasTablaListaAVertical,
+  limpiarValorCelda,
   parsearLineaTabla,
   procesarBloqueTabla,
 } from "@/lib/parsers/memoria/table-parser";
@@ -42,6 +46,11 @@ export function segmentMemoriaContent(text: string): MemoriaSegment[] {
 
   function flushTable() {
     if (tableBuffer.length === 0) return;
+    if (esTablaListaPseudo(tableBuffer)) {
+      textBuffer.push(filasTablaListaAVertical(tableBuffer));
+      tableBuffer = [];
+      return;
+    }
     const { rows, meta } = procesarBloqueTabla(tableBuffer);
     if (rows.length > 0) {
       segments.push({
@@ -65,6 +74,14 @@ export function segmentMemoriaContent(text: string): MemoriaSegment[] {
       tableBuffer.push(cells);
     } else {
       flushTable();
+      const trimmed = line.trim();
+      if (trimmed.includes("|")) {
+        const cells = parsearLineaTabla(trimmed).map(limpiarValorCelda).filter((c) => c.length > 0);
+        if (cells.length >= 2 && cells.every(celdaEsItemLista)) {
+          textBuffer.push(...cells);
+          continue;
+        }
+      }
       textBuffer.push(line);
     }
   }

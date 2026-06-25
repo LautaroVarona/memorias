@@ -35,11 +35,40 @@ export function parsearLineaTabla(linea: string): string[] {
   return cells;
 }
 
+/** Ítem de lista alfabética/numérica (a), b), 1., etc.). */
+export function celdaEsItemLista(celda: string): boolean {
+  return /^(?:[a-z]\)|\d+\)|\d+\.)\s+\S/i.test(limpiarValorCelda(celda));
+}
+
+/** Tabla RTF/Word que en realidad es una lista en columnas (objeto social, etc.). */
+export function esTablaListaPseudo(filas: string[][]): boolean {
+  const celdas = filas
+    .flat()
+    .map(limpiarValorCelda)
+    .filter((c) => c.length > 0);
+  if (celdas.length < 2) return false;
+  const items = celdas.filter(celdaEsItemLista);
+  return items.length >= 2 && items.length >= celdas.length * 0.75;
+}
+
+/** Convierte una pseudo-tabla de lista a texto vertical (un ítem por línea). */
+export function filasTablaListaAVertical(filas: string[][]): string {
+  return filas
+    .flat()
+    .map(limpiarValorCelda)
+    .filter((c) => c.length > 0)
+    .join("\n");
+}
+
 /** Fila de tabla: al menos 2 celdas delimitadas (pueden estar vacías). */
 export function esLineaTabla(linea: string): boolean {
   const t = linea.trim();
   if (!t.includes("|")) return false;
-  return parsearLineaTabla(t).length >= 2;
+  const cells = parsearLineaTabla(t);
+  if (cells.length < 2) return false;
+  const conTexto = cells.filter((c) => c.length > 0);
+  if (conTexto.length >= 2 && conTexto.every(celdaEsItemLista)) return false;
+  return true;
 }
 
 /** Cabecera comparativa anual: celdas (salvo la 1ª) son años o IMPORTE 20xx. */

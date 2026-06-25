@@ -283,18 +283,29 @@ function FlatCompareContent({
   highlightQuery?: string;
   emphasizeStructural?: boolean;
 }) {
-  // Cada párrafo alineado es una fila (prior | current) con la misma altura en ambos lados.
+  // Agrupa bloques de texto consecutivos en un único grid 2 columnas (prior | current).
   const grupos: (
     | { type: "text"; lines: ComparedLine[] }
     | { type: "table"; table: ComparedTable }
   )[] = [];
+
+  let textRun: ComparedLine[] = [];
+  const flushTextRun = () => {
+    if (textRun.length > 0) {
+      grupos.push({ type: "text", lines: textRun });
+      textRun = [];
+    }
+  };
+
   for (const block of blocks) {
-    if (block.type === "text") {
-      grupos.push({ type: "text", lines: [block.line] });
-    } else {
+    if (block.type === "table") {
+      flushTextRun();
       grupos.push({ type: "table", table: block.table });
+    } else {
+      textRun.push(block.line);
     }
   }
+  flushTextRun();
 
   return (
     <div className="relative">
@@ -308,12 +319,12 @@ function FlatCompareContent({
         <div className="pl-6 text-right text-blue-900">{currentLabel}</div>
       </div>
 
-      <div className="relative z-0">
+      <div className="relative z-0 flex flex-col gap-0">
         {grupos.map((grupo, gi) =>
           grupo.type === "text" ? (
             <div
               key={`txt-${gi}`}
-              className="grid grid-cols-2 gap-x-0 text-[13px] leading-snug"
+              className="grid w-full grid-cols-2 gap-x-0 text-[13px] leading-snug"
             >
               {grupo.lines.map((line, i) => (
                 <DiffRow

@@ -6,7 +6,12 @@
  * párrafos (\par) y tablas (\cell / \row se convierten en filas con "|").
  */
 
-import { limpiarValorCelda, normalizarAnchoFilas } from "./table-parser";
+import {
+  esTablaListaPseudo,
+  filasTablaListaAVertical,
+  limpiarValorCelda,
+  normalizarAnchoFilas,
+} from "./table-parser";
 
 /** Propiedades de fila/celda RTF: no aportan texto visible. */
 const RTF_TABLE_LAYOUT_KEYWORDS = new Set([
@@ -375,7 +380,13 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
         .map((fila) => fila.map(limpiarCelda))
         .filter((fila) => fila.some((c) => c.length > 0));
       const normalizada = normalizarAnchoFilas(limpia);
-      if (normalizada.length > 0) bloques.push({ type: "table", content: normalizada });
+      if (normalizada.length > 0) {
+        if (esTablaListaPseudo(normalizada)) {
+          textBuffer += filasTablaListaAVertical(normalizada);
+        } else {
+          bloques.push({ type: "table", content: normalizada });
+        }
+      }
     }
     tablaActual = [];
     filaActual = [];

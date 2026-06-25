@@ -18,7 +18,19 @@ function lineaIniciaUnidad(line: string): boolean {
   if (t.length >= 8 && t === t.toUpperCase() && /[A-ZÁÉÍÓÚÑ]{4}/.test(t) && !/\d/.test(t)) {
     return true;
   }
+  if (esTituloCorto(t)) return true;
   return false;
+}
+
+/** Encabezados breves tipo "Imagen fiel", "Disposiciones legales". */
+function esTituloCorto(line: string): boolean {
+  const t = line.trim();
+  if (t.length < 3 || t.length > 56) return false;
+  if (/[.;:]$/.test(t)) return false;
+  if (/\b20\d{2}\b/.test(t)) return false;
+  const palabras = t.split(/\s+/);
+  if (palabras.length > 6) return false;
+  return /^[A-ZÁÉÍÓÚÑ]/.test(t);
 }
 
 function prefijoListaIncompleto(text: string): boolean {
