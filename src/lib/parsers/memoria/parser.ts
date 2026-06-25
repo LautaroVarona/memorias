@@ -3,6 +3,7 @@ import type { MemoriaNormalizada } from "@/types/domain";
 import {
   analizarFormal,
   contarPaginasPdf,
+  crearBloqueTabla,
   extraerApartadosDesdeBloques,
   extraerAniosMencionados,
   extraerCifras,
@@ -68,8 +69,7 @@ function splitCeldasTabulares(segmento: string): string[] {
       buf += c;
     }
   }
-  cells.push(limpiarCeldaTabular(buf));
-  while (cells.length > 1 && cells[cells.length - 1] === "") cells.pop();
+  if (buf.length > 0) cells.push(limpiarCeldaTabular(buf));
   return cells;
 }
 
@@ -161,10 +161,7 @@ export async function parseMemoria(
       ? extraerBloquesRtf(buffer).map((b) =>
           b.type === "text"
             ? { type: "text", content: normalizarTexto(b.content) }
-            : {
-                type: "table",
-                content: b.content.map((fila) => fila.map((celda) => limpiarCeldaTabular(celda))),
-              }
+            : crearBloqueTabla(b.content.map((fila) => fila.map((celda) => limpiarCeldaTabular(celda))))
         )
       : segmentarBloquesDeTexto(texto);
 

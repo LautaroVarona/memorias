@@ -80,9 +80,21 @@ export interface MemoriaTextBlock {
   content: string;
 }
 
+export interface MemoriaTableRow {
+  cells: string[];
+  /** Sub-desglose indentado con guion (p. ej. "Valor del terreno") */
+  is_subconcept?: boolean;
+}
+
 export interface MemoriaTableBlock {
   type: "table";
-  content: string[][];
+  /** Filas normalizadas (índice 0 = cabecera inferida dinámicamente) */
+  rows: MemoriaTableRow[];
+  cabecera: string[];
+  /** Columnas IMPORTE 20xx / años comparativos */
+  esComparativaAnual?: boolean;
+  /** Tabla descriptiva (vidas útiles, métodos, identificación…) */
+  esTablaTexto?: boolean;
 }
 
 export interface TablaMemoria {
@@ -93,6 +105,10 @@ export interface TablaMemoria {
   /** Primera fila (cabecera) */
   cabecera: string[];
   filas: string[][];
+  /** Filas enriquecidas con metadatos (sub-conceptos) */
+  filasDetalle?: MemoriaTableRow[];
+  esComparativaAnual?: boolean;
+  esTablaTexto?: boolean;
   /** true si las celdas de datos están todas vacías */
   vacia: boolean;
   linea: number;

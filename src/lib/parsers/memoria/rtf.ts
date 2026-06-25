@@ -6,6 +6,8 @@
  * párrafos (\par) y tablas (\cell / \row se convierten en filas con "|").
  */
 
+import { limpiarValorCelda, normalizarAnchoFilas } from "./table-parser";
+
 /** Propiedades de fila/celda RTF: no aportan texto visible. */
 const RTF_TABLE_LAYOUT_KEYWORDS = new Set([
   "trowd",
@@ -215,7 +217,7 @@ export function extraerTablasRtf(buffer: Buffer): RtfTablaExtraida[] {
 /** Convierte filas de tabla a líneas con separador " | " (formato unificado del parser). */
 export function tablasRtfATexto(tablas: RtfTablaExtraida[]): string {
   return tablas
-    .map((tabla) => tabla.filas.map((fila) => fila.filter((c) => c.length > 0).join(" | ")).join("\n"))
+    .map((tabla) => tabla.filas.map((fila) => fila.map(limpiarValorCelda).join(" | ")).join("\n"))
     .filter(Boolean)
     .join("\n\n");
 }
@@ -354,7 +356,7 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
   let inIntbl = false; // el párrafo actual está marcado \intbl
   let pendingClose = false; // \lastrow visto: cerrar la tabla al próximo \row
 
-  const limpiarCelda = (raw: string) => raw.replace(/[\u0000-\u001F\u007F]/g, "").replace(/\s+/g, " ").trim();
+  const limpiarCelda = limpiarValorCelda;
 
   const flushText = () => {
     const content = textBuffer
@@ -372,14 +374,7 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
       const limpia = tablaActual
         .map((fila) => fila.map(limpiarCelda))
         .filter((fila) => fila.some((c) => c.length > 0));
-      // A3SOC añade una celda vacía final por fila: recorta columnas finales vacías en todas.
-      let ancho = 0;
-      for (const fila of limpia) {
-        let ultima = -1;
-        for (let k = 0; k < fila.length; k++) if (fila[k].length > 0) ultima = k;
-        ancho = Math.max(ancho, ultima + 1);
-      }
-      const normalizada = limpia.map((fila) => fila.slice(0, Math.max(ancho, 1)));
+      const normalizada = normalizarAnchoFilas(limpia);
       if (normalizada.length > 0) bloques.push({ type: "table", content: normalizada });
     }
     tablaActual = [];

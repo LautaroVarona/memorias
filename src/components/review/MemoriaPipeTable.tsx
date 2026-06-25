@@ -1,14 +1,22 @@
+import type { MemoriaTableRow } from "@/types/domain";
 import { cellLooksNumeric } from "./parse-pipe-table";
 
 interface MemoriaPipeTableProps {
-  rows: string[][];
+  rows: MemoriaTableRow[] | string[][];
+}
+
+function normalizeRows(rows: MemoriaTableRow[] | string[][]): MemoriaTableRow[] {
+  if (rows.length === 0) return [];
+  if ("cells" in rows[0]) return rows as MemoriaTableRow[];
+  return (rows as string[][]).map((cells) => ({ cells }));
 }
 
 export function MemoriaPipeTable({ rows }: MemoriaPipeTableProps) {
-  if (rows.length === 0) return null;
+  const normalized = normalizeRows(rows);
+  if (normalized.length === 0) return null;
 
-  const [header, ...body] = rows;
-  const colCount = Math.max(...rows.map((r) => r.length));
+  const [header, ...body] = normalized;
+  const colCount = Math.max(...normalized.map((r) => r.cells.length));
 
   return (
     <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
@@ -22,7 +30,7 @@ export function MemoriaPipeTable({ rows }: MemoriaPipeTableProps) {
                   i > 0 ? "text-right" : "text-left"
                 }`}
               >
-                {header[i] ?? ""}
+                {header.cells[i] ?? ""}
               </th>
             ))}
           </tr>
@@ -31,16 +39,17 @@ export function MemoriaPipeTable({ rows }: MemoriaPipeTableProps) {
           {body.map((row, ri) => (
             <tr key={ri} className="border-b border-slate-100 last:border-0">
               {Array.from({ length: colCount }, (_, ci) => {
-                const cell = row[ci] ?? "";
+                const cell = row.cells[ci] ?? "";
                 const numeric = cellLooksNumeric(cell);
+                const isLabel = ci === 0;
                 return (
                   <td
                     key={ci}
                     className={`px-2 py-1 ${
                       numeric
                         ? "text-right font-mono tabular-nums text-slate-800"
-                        : ci === 0
-                          ? "text-left text-slate-700"
+                        : isLabel
+                          ? `text-left text-slate-700${row.is_subconcept ? " pl-5" : ""}`
                           : "text-right text-slate-600"
                     }`}
                   >

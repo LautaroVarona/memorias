@@ -114,7 +114,7 @@ function segmentKey(seg: MemoriaSegment): string {
   }
   const labels = seg.rows
     .slice(0, 6)
-    .map((r) => normalizarTextoComparacionInteranual(r[0] ?? ""))
+    .map((r) => normalizarTextoComparacionInteranual(r.cells[0] ?? ""))
     .join("|");
   return `tbl:${labels}`;
 }
@@ -176,7 +176,7 @@ function pairTextBlocks(priorBlocks: string[], currentBlocks: string[]): Compare
 
 function tableSegmentToText(seg: MemoriaSegment): string {
   if (seg.type !== "table") return "";
-  return seg.rows.map((row) => row.join(" | ")).join("\n");
+  return seg.rows.map((row) => row.cells.join(" | ")).join("\n");
 }
 
 function alignSegments(

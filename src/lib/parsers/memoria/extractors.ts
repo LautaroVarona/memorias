@@ -11,8 +11,18 @@ import type {
   DatosClaveMemoria,
   FormalMemoria,
   MemoriaBloque,
+  MemoriaTableBlock,
+  MemoriaTableRow,
   TablaMemoria,
 } from "@/types/domain";
+import {
+  debeIniciarNuevaTabla,
+  esLineaTabla,
+  intentarAnexarCeldasParciales,
+  parsearLineaTabla,
+  procesarBloqueTabla,
+  serializarFilasTabla,
+} from "./table-parser";
 import type {
   ImporteVinculadasFila,
   VinculadasCategoria,
@@ -242,36 +252,25 @@ export function extraerApartados(texto: string): ApartadoMemoria[] {
   return apartados;
 }
 
-/** Fila de tabla en texto normalizado: contiene "|" y al menos 2 celdas con contenido. */
-function esLineaTabla(linea: string): boolean {
-  if (!linea.includes("|")) return false;
-  return linea.split("|").filter((c) => c.trim().length > 0).length >= 2;
+export function crearBloqueTabla(rawFilas: string[][]): MemoriaTableBlock {
+  const { rows, meta } = procesarBloqueTabla(rawFilas);
+  return {
+    type: "table",
+    rows,
+    cabecera: meta.cabecera,
+    esComparativaAnual: meta.esComparativaAnual,
+    esTablaTexto: meta.esTablaTexto,
+  };
 }
 
-function celdasDeLinea(linea: string): string[] {
-  const cells = linea.split("|").map((c) => c.replace(/[\u0000-\u001F\u007F]/g, "").trim());
-  while (cells.length > 1 && cells[cells.length - 1] === "") cells.pop();
-  return cells;
-}
-
-/**
- * Cabecera de tabla comparativa anual: sus celdas (salvo la primera) son años
- * "2024" o etiquetas "IMPORTE 2024". Permite separar dos tablas contiguas
- * (p. ej. BASE DE REPARTO seguida de DISTRIBUCIÓN) sin texto entre medias.
- */
-function esCabeceraAnual(cells: string[]): boolean {
-  if (cells.length < 2) return false;
-  const resto = cells.slice(1).filter((c) => c.length > 0);
-  if (resto.length === 0) return false;
-  return resto.every(
-    (c) => /^(19|20)\d{2}$/.test(c) || /\bimporte\s+(19|20)\d{2}\b/i.test(c)
-  );
+export function filasCeldasDeTabla(rows: MemoriaTableRow[]): string[][] {
+  return rows.map((r) => [...r.cells]);
 }
 
 /**
  * Segmenta texto normalizado (celdas separadas por " | ") en bloques inline
- * texto/tabla en orden de aparición. Inicia una tabla nueva cuando aparece una
- * cabecera anual tras filas de datos, evitando fusionar tablas independientes.
+ * texto/tabla en orden de aparición. Cierra la tabla al encontrar un párrafo sin
+ * delimitadores pipe e inicia una nueva cuando detecta cabecera titular distinta.
  */
 export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
   const bloques: MemoriaBloque[] = [];
@@ -285,7 +284,7 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
   };
 
   const flushTabla = () => {
-    if (tabla.length > 0) bloques.push({ type: "table", content: tabla });
+    if (tabla.length > 0) bloques.push(crearBloqueTabla(tabla));
     tabla = [];
   };
 
@@ -293,14 +292,18 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
     const linea = lineaRaw.trim();
     if (esLineaTabla(linea)) {
       flushText();
-      const cells = celdasDeLinea(linea);
-      if (tabla.length > 0 && esCabeceraAnual(cells) && tabla.some((r) => !esCabeceraAnual(r))) {
+      const cells = parsearLineaTabla(linea);
+
+      if (tabla.length > 0 && debeIniciarNuevaTabla(cells, tabla)) {
         flushTabla();
+      } else if (tabla.length > 0 && intentarAnexarCeldasParciales(cells, tabla)) {
+        continue;
       }
+
       tabla.push(cells);
     } else {
       flushTabla();
-      textBuffer.push(linea);
+      if (linea) textBuffer.push(linea);
     }
   }
 
@@ -312,9 +315,7 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
 /** Serializa una lista de bloques a texto, separando cada bloque por una línea en blanco. */
 function serializarBloques(bloques: MemoriaBloque[]): string {
   return bloques
-    .map((b) =>
-      b.type === "text" ? b.content.trim() : b.content.map((fila) => fila.join(" | ")).join("\n")
-    )
+    .map((b) => (b.type === "text" ? b.content.trim() : serializarFilasTabla(b.rows)))
     .map((s) => s.trim())
     .filter(Boolean)
     .join("\n\n");
@@ -361,7 +362,13 @@ export function extraerApartadosDesdeBloques(bloques: MemoriaBloque[]): Apartado
   for (const bloque of bloques) {
     if (bloque.type === "table") {
       flushParrafo();
-      destino().push({ type: "table", content: bloque.content.map((fila) => [...fila]) });
+      destino().push({
+        type: "table",
+        rows: bloque.rows.map((r) => ({ cells: [...r.cells], ...(r.is_subconcept ? { is_subconcept: true } : {}) })),
+        cabecera: [...bloque.cabecera],
+        esComparativaAnual: bloque.esComparativaAnual,
+        esTablaTexto: bloque.esTablaTexto,
+      });
       continue;
     }
 
@@ -435,28 +442,26 @@ export function extraerTablasDesdeBloques(
       continue;
     }
 
-    const filas = bloque.content
-      .map((fila) =>
-        fila
-          .map((c) => c.replace(/[\u0000-\u001F\u007F]/g, "").trim())
-          .filter((_, idx, arr) => !(idx === arr.length - 1 && arr[idx] === ""))
-      )
-      .filter((fila) => fila.some((c) => c.length > 0));
-    if (filas.length === 0) continue;
+    const celdas = filasCeldasDeTabla(bloque.rows);
+    if (celdas.length === 0) continue;
 
-    const cabecera = filas[0];
-    const datos = filas.length > 1 ? filas.slice(1) : [];
-    const vacia = tablaEstaVacia(cabecera, datos);
+    const cabecera = bloque.cabecera.length > 0 ? bloque.cabecera : (celdas[0] ?? []);
+    const datos = celdas.length > 1 ? celdas.slice(1) : [];
+    const filasDetalle = bloque.rows.length > 1 ? bloque.rows.slice(1) : [];
+    const vacia = tablaEstaVacia(cabecera, datos, bloque.esTablaTexto);
     tablas.push({
       apartado: apartadoActual,
       titulo: tituloPrevio,
       cabecera,
       filas: datos,
+      filasDetalle,
+      esComparativaAnual: bloque.esComparativaAnual,
+      esTablaTexto: bloque.esTablaTexto,
       vacia,
       linea,
       pagina: lineaToPagina(textoCompletoFallback, linea),
     });
-    linea += filas.length;
+    linea += celdas.length;
   }
 
   return tablas;
@@ -488,7 +493,7 @@ function celdaTieneTextoSignificativo(celda: string): boolean {
 
 /** Cabeceras de tablas puramente descriptivas (sin importes). */
 const PATRON_TABLA_CUALITATIVA =
-  /\b(identificaci[oó]n|naturaleza(?:\s+de\s+la\s+relaci[oó]n)?|sociedad|domicilio|denominaci[oó]n|raz[oó]n\s+social|relaci[oó]n)\b/i;
+  /\b(identificaci[oó]n|naturaleza(?:\s+de\s+la\s+relaci[oó]n)?|sociedad|domicilio|denominaci[oó]n|raz[oó]n\s+social|relaci[oó]n|vida\s+[uú]til|m[eé]todo\s+(de\s+)?amort)/i;
 
 const PATRON_CABECERA_NUMERICA_TABLA =
   /\b(importe|saldo|euros?|cantidad|valor|20\d{2})\b/i;
@@ -525,10 +530,10 @@ function columnasDatosRelevantes(cabecera: string[]): number[] {
   return cabecera.slice(1).map((_, idx) => idx + 1);
 }
 
-function tablaEstaVacia(cabecera: string[], datos: string[][]): boolean {
+function tablaEstaVacia(cabecera: string[], datos: string[][], esTablaTexto?: boolean): boolean {
   if (datos.length === 0) return false;
 
-  if (tablaEsCualitativa(cabecera, datos)) {
+  if (esTablaTexto || tablaEsCualitativa(cabecera, datos)) {
     return !datos.some((fila) => fila.some((celda) => celdaTieneTextoSignificativo(celda)));
   }
 
@@ -539,71 +544,7 @@ function tablaEstaVacia(cabecera: string[], datos: string[][]): boolean {
 }
 
 export function extraerTablas(texto: string): TablaMemoria[] {
-  const lineas = texto.split(/\n/);
-  const tablas: TablaMemoria[] = [];
-
-  let apartadoActual: string | undefined;
-  let bloque: { cells: string[]; linea: number }[] = [];
-  let tituloPrevio = "";
-  let ultimaNoVacia = "";
-
-  const flush = () => {
-    if (bloque.length === 0) return;
-    const filas = bloque.map((b) => b.cells);
-    const cabecera = filas[0];
-    const datos = filas.length > 1 ? filas.slice(1) : [];
-    const lineaInicio = bloque[0].linea;
-    const vacia = tablaEstaVacia(cabecera, datos);
-    tablas.push({
-      apartado: apartadoActual,
-      titulo: tituloPrevio,
-      cabecera,
-      filas: datos,
-      vacia,
-      linea: lineaInicio,
-      pagina: lineaToPagina(texto, lineaInicio),
-    });
-    bloque = [];
-  };
-
-  for (let i = 0; i < lineas.length; i++) {
-    const linea = lineas[i].trim();
-
-    if (!linea.includes("|")) {
-      flush();
-      if (linea) {
-        const heading = parseMainApartadoHeading(linea);
-        if (heading) {
-          apartadoActual = String(heading.numero).padStart(2, "0");
-        }
-        ultimaNoVacia = linea;
-      }
-      continue;
-    }
-
-    const cells = linea
-      .split("|")
-      .map((c) => c.replace(/[\u0000-\u001F\u007F]/g, "").trim())
-      .filter((_, idx, arr) => !(idx === arr.length - 1 && arr[idx] === ""));
-
-    // El RTF parte filas lógicas en varias líneas (la etiqueta en una línea y
-    // cada importe en la siguiente): las celdas sueltas se anexan a la fila
-    // anterior mientras esta no haya alcanzado el ancho de la cabecera.
-    if (bloque.length > 0 && cells.length <= 2) {
-      const anchoCabecera = bloque[0].cells.length;
-      const filaAnterior = bloque[bloque.length - 1];
-      if (filaAnterior.cells.length < anchoCabecera) {
-        filaAnterior.cells.push(...cells.filter((c) => c !== ""));
-        continue;
-      }
-    }
-
-    if (bloque.length === 0) tituloPrevio = ultimaNoVacia;
-    bloque.push({ cells, linea: i + 1 });
-  }
-  flush();
-
-  return tablas;
+  return extraerTablasDesdeBloques(segmentarBloquesDeTexto(texto), texto);
 }
 
 const MESES: Record<string, number> = {

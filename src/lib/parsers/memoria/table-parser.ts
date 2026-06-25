@@ -1,0 +1,235 @@
+/**
+ * Parser dinámico de tablas para memorias A3SOC.
+ * Preserva celdas vacías, infiere cabeceras por tabla y detecta sub-conceptos indentados.
+ */
+
+export interface MemoriaTableRow {
+  cells: string[];
+  is_subconcept?: boolean;
+}
+
+export interface TablaParseadaMeta {
+  cabecera: string[];
+  esComparativaAnual: boolean;
+  esTablaTexto: boolean;
+}
+
+const PATRON_TITULO_CABECERA =
+  /^(MOVIMIENTOS?\b|AMORTIZACI[ÓO]N\b|INFORMACI[ÓO]N SOBRE|ELEMENTO\b|DESCRIPCI[ÓO]N\b|CONCEPTO\b|BASE DE REPARTO\b|DISTRIBUCI[ÓO]N\b|IDENTIFICACI[ÓO]N\b|INSTRUMENTOS\b|CR[EÉ]DITOS\b|DERIVADOS\b|TOTAL\b|DEUDORES\b|APROVISIONAMIENTOS\b|HONORARIOS\b|ABONOS\b|CARGOS\b|SALDOS\b|CONCEPTOS\b|Categor[ií]a\b|EJERCICIO\b|INVERSIONES\b|SUBVENCIONES\b|MOVIMIENTO\b|Hacienda\b)/i;
+
+/** Elimina caracteres de control sin colapsar la celda. */
+export function limpiarValorCelda(raw: string): string {
+  return raw.replace(/[\u0000-\u001F\u007F]/g, "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Parsea una línea con delimitador pipe preservando celdas vacías internas.
+ * Solo elimina la celda vacía final por un pipe sobrante al final de línea.
+ */
+export function parsearLineaTabla(linea: string): string[] {
+  const trimmed = linea.trim();
+  const cells = trimmed.split("|").map((c) => limpiarValorCelda(c));
+  if (trimmed.endsWith("|") && cells.length > 1 && cells[cells.length - 1] === "") {
+    cells.pop();
+  }
+  return cells;
+}
+
+/** Fila de tabla: al menos 2 celdas delimitadas (pueden estar vacías). */
+export function esLineaTabla(linea: string): boolean {
+  const t = linea.trim();
+  if (!t.includes("|")) return false;
+  return parsearLineaTabla(t).length >= 2;
+}
+
+/** Cabecera comparativa anual: celdas (salvo la 1ª) son años o IMPORTE 20xx. */
+export function esCabeceraAnual(cells: string[]): boolean {
+  if (cells.length < 2) return false;
+  const resto = cells.slice(1).filter((c) => c.length > 0);
+  if (resto.length === 0) return false;
+  return resto.every(
+    (c) => /^(19|20)\d{2}$/.test(c) || /\bimporte\s+(19|20)\d{2}\b/i.test(c)
+  );
+}
+
+function normalizarCabecera(cells: string[]): string {
+  return cells.map(limpiarValorCelda).join("\t").toUpperCase();
+}
+
+function celdaPareceImporte(c: string): boolean {
+  const t = c.trim();
+  if (!t) return false;
+  return /^-?[\d.,]+$/.test(t.replace(/\s/g, ""));
+}
+
+function columnasParecenCabecera(cells: string[]): boolean {
+  const resto = cells.slice(1);
+  if (resto.every((c) => !c.trim())) return false;
+  return resto.every((c) => {
+    const t = c.trim();
+    if (!t) return true;
+    if (/\bimporte\s+(19|20)\d{2}\b/i.test(t)) return true;
+    if (/^(19|20)\d{2}$/.test(t)) return true;
+    if (/\b(amort|años|m[eé]todo|vto|d[ií]as|%|cifra|informaci[oó]n)\b/i.test(t)) return true;
+    if (!celdaPareceImporte(t) && t.length >= 2) return true;
+    return false;
+  });
+}
+
+/** Cabecera titular de tabla (MOVIMIENTOS…, ELEMENTO…, INFORMACIÓN SOBRE…). */
+export function esCabeceraTituloTabla(cells: string[]): boolean {
+  if (cells.length < 2) return false;
+  if (!columnasParecenCabecera(cells)) return false;
+
+  const c0 = cells[0] ?? "";
+  if (PATRON_TITULO_CABECERA.test(c0)) return true;
+
+  if (c0.length >= 12 && c0 === c0.toUpperCase() && /[A-ZÁÉÍÓÚÑ]{4}/.test(c0)) {
+    return true;
+  }
+  return false;
+}
+
+export function esCabeceraTabla(cells: string[]): boolean {
+  return esCabeceraAnual(cells) || esCabeceraTituloTabla(cells);
+}
+
+/**
+ * Decide si una fila inicia una tabla nueva separada de la tabla en curso.
+ * Se usa cuando dos tablas van consecutivas sin párrafo intermedio.
+ */
+export function debeIniciarNuevaTabla(cells: string[], tablaActual: string[][]): boolean {
+  if (tablaActual.length === 0) return false;
+  if (!esCabeceraTabla(cells)) return false;
+
+  const headerActual = tablaActual[0] ?? [];
+  if (normalizarCabecera(cells) === normalizarCabecera(headerActual)) return false;
+
+  const tieneFilasDatos = tablaActual.some((r, idx) => idx > 0 || !esCabeceraTabla(r));
+  if (!tieneFilasDatos) return false;
+
+  if (esCabeceraAnual(cells) && tablaActual.some((r) => !esCabeceraAnual(r))) return true;
+  if (esCabeceraTituloTabla(cells)) return true;
+
+  return false;
+}
+
+/** Analiza la primera fila para clasificar columnas (comparativa anual vs texto). */
+export function analizarCabeceraTabla(cabecera: string[]): TablaParseadaMeta {
+  const columnaEsAnual = (c: string): boolean => {
+    const t = c.trim();
+    if (/^(19|20)\d{2}$/.test(t)) return true;
+    if (/\bimporte\s+(19|20)\d{2}\b/i.test(t)) return true;
+    if (/\b(19|20)\d{2}\b/.test(t) && /\b(amort|importe|saldo|d[ií]as|%|cifra)\b/i.test(t)) return true;
+    return false;
+  };
+
+  const esComparativaAnual = cabecera.slice(1).some(columnaEsAnual);
+
+  const textoCabecera = cabecera.join(" ");
+  const tieneMetodoAmort =
+    /\bm[eé]todo\b/i.test(textoCabecera) || /\bvida\s+[uú]til\b/i.test(textoCabecera);
+  const tieneColumnasSoloTexto = cabecera.slice(1).every((c) => {
+    const t = c.trim();
+    if (!t) return true;
+    return !celdaPareceImporte(t) && !columnaEsAnual(t);
+  });
+
+  const esTablaTexto =
+    tieneMetodoAmort ||
+    (tieneColumnasSoloTexto && !esComparativaAnual) ||
+    /\bnaturaleza\b/i.test(textoCabecera) ||
+    /\bidentificaci[oó]n\b/i.test(textoCabecera);
+
+  return { cabecera: cabecera.map(limpiarValorCelda), esComparativaAnual, esTablaTexto };
+}
+
+/** Detecta sub-conceptos indentados con guion en la primera columna. */
+export function detectarSubconcepto(celdaRaw: string): { text: string; is_subconcept: boolean } {
+  const sinControl = celdaRaw.replace(/[\u0000-\u001F\u007F]/g, "");
+  const m = sinControl.match(/^(\s*)[-–—]\s*(.+)$/);
+  if (m) {
+    return { text: m[2].replace(/\s+/g, " ").trim(), is_subconcept: true };
+  }
+  return { text: limpiarValorCelda(celdaRaw), is_subconcept: false };
+}
+
+/** Alinea todas las filas al ancho de la cabecera sin colapsar celdas vacías. */
+export function normalizarAnchoFilas(rawFilas: string[][]): string[][] {
+  if (rawFilas.length === 0) return [];
+  const ancho = Math.max(...rawFilas.map((f) => f.length));
+  let normalizadas = rawFilas.map((fila) => {
+    const cells = [...fila];
+    while (cells.length < ancho) cells.push("");
+    return cells.slice(0, ancho).map(limpiarValorCelda);
+  });
+
+  while ((normalizadas[0]?.length ?? 0) > 1) {
+    const last = normalizadas[0].length - 1;
+    if (normalizadas.every((f) => !(f[last] ?? "").trim())) {
+      normalizadas = normalizadas.map((f) => f.slice(0, last));
+    } else {
+      break;
+    }
+  }
+
+  return normalizadas;
+}
+
+/** Convierte filas crudas en filas con metadatos (sub-conceptos en columna 0). */
+export function enriquecerFilasTabla(rawFilas: string[][]): MemoriaTableRow[] {
+  const normalizadas = normalizarAnchoFilas(rawFilas);
+  return normalizadas.map((cells, idx) => {
+    if (idx === 0) return { cells: [...cells] };
+
+    const concepto = detectarSubconcepto(cells[0] ?? "");
+    const fila: MemoriaTableRow = {
+      cells: [concepto.text, ...cells.slice(1)],
+    };
+    if (concepto.is_subconcept) fila.is_subconcept = true;
+    return fila;
+  });
+}
+
+/** Serializa filas a texto pipe preservando celdas vacías. */
+export function serializarFilasTabla(filas: MemoriaTableRow[] | string[][]): string {
+  const rows = filas.map((f) => ("cells" in f ? f.cells : f));
+  return rows.map((fila) => fila.join(" | ")).join("\n");
+}
+
+/** Procesa un bloque de filas crudas: normaliza ancho, enriquece y analiza cabecera. */
+export function procesarBloqueTabla(rawFilas: string[][]): {
+  rows: MemoriaTableRow[];
+  meta: TablaParseadaMeta;
+} {
+  const rows = enriquecerFilasTabla(rawFilas);
+  const meta = analizarCabeceraTabla(rows[0]?.cells ?? []);
+  return { rows, meta };
+}
+
+/**
+ * Intenta anexar celdas sueltas a la fila anterior (RTF/word parten una fila lógica
+ * en varias líneas). Preserva celdas vacías: no filtra "" al anexar.
+ */
+export function intentarAnexarCeldasParciales(
+  cells: string[],
+  tabla: string[][]
+): boolean {
+  if (tabla.length === 0 || cells.length === 0) return false;
+  const anchoCabecera = tabla[0]?.length ?? 0;
+  if (anchoCabecera === 0) return false;
+
+  const filaAnterior = tabla[tabla.length - 1];
+  if (filaAnterior.length >= anchoCabecera) return false;
+
+  if (cells.length <= 2 || filaAnterior.length + cells.length <= anchoCabecera + 1) {
+    filaAnterior.push(...cells);
+    while (filaAnterior.length > anchoCabecera) {
+      // exceso: devolver false y deshacer — caso patológico
+      filaAnterior.pop();
+      return false;
+    }
+    return true;
+  }
+  return false;
+}

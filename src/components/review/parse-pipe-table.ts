@@ -1,30 +1,24 @@
+import {
+  debeIniciarNuevaTabla,
+  detectarSubconcepto,
+  esLineaTabla,
+  parsearLineaTabla,
+  procesarBloqueTabla,
+} from "@/lib/parsers/memoria/table-parser";
+import type { MemoriaTableRow } from "@/types/domain";
+
 export type MemoriaSegment =
   | { type: "text"; content: string }
-  | { type: "table"; rows: string[][] };
-
-function isTableLine(line: string): boolean {
-  const trimmed = line.trim();
-  if (!trimmed.includes("|")) return false;
-  return trimmed.split("|").filter((c) => c.trim().length > 0).length >= 2;
-}
-
-/**
- * Cabecera de tabla comparativa anual: celdas (salvo la 1ª) son años "2024" o
- * "IMPORTE 2024". Permite separar dos tablas contiguas sin texto entre medias
- * (p. ej. BASE DE REPARTO seguida de DISTRIBUCIÓN).
- */
-function isAnnualHeaderRow(cells: string[]): boolean {
-  if (cells.length < 2) return false;
-  const rest = cells.slice(1).filter((c) => c.length > 0);
-  if (rest.length === 0) return false;
-  return rest.every((c) => /^(19|20)\d{2}$/.test(c) || /\bimporte\s+(19|20)\d{2}\b/i.test(c));
-}
+  | {
+      type: "table";
+      rows: MemoriaTableRow[];
+      cabecera: string[];
+      esComparativaAnual?: boolean;
+      esTablaTexto?: boolean;
+    };
 
 export function parseTableRow(line: string): string[] {
-  const cells = line.split("|").map((c) => c.trim());
-  // Solo quitar celda vacía final por un pipe sobrante al final de la línea.
-  if (cells.length > 1 && cells[cells.length - 1] === "") cells.pop();
-  return cells;
+  return parsearLineaTabla(line);
 }
 
 export function cellLooksNumeric(cell: string): boolean {
@@ -37,18 +31,20 @@ function rowHasContent(cells: string[]): boolean {
   return cells.some((c) => c.trim().length >= 1);
 }
 
-function filterEmptyDataRows(rows: string[][]): string[][] {
+function filterEmptyDataRows(rows: MemoriaTableRow[]): MemoriaTableRow[] {
   if (rows.length === 0) return rows;
   const [header, ...body] = rows;
-  const filteredBody = body.filter(rowHasContent);
+  const filteredBody = body.filter((r) => rowHasContent(r.cells));
   if (filteredBody.length === 0) {
-    return rowHasContent(header) ? [header] : [];
+    return rowHasContent(header.cells) ? [header] : [];
   }
   return [header, ...filteredBody];
 }
 
-function parseTableLines(lines: string[]): string[][] {
-  const rows = lines.map(parseTableRow).filter((r) => r.length > 0);
+function parseTableLines(lines: string[]): MemoriaTableRow[] {
+  const raw = lines.filter(esLineaTabla).map(parseTableRow).filter((r) => r.length >= 2);
+  if (raw.length === 0) return [];
+  const { rows } = procesarBloqueTabla(raw);
   return filterEmptyDataRows(rows);
 }
 
@@ -56,7 +52,7 @@ export function segmentMemoriaContent(text: string): MemoriaSegment[] {
   const lines = text.split("\n");
   const segments: MemoriaSegment[] = [];
   let textBuffer: string[] = [];
-  let tableBuffer: string[] = [];
+  let tableBuffer: string[][] = [];
 
   function flushText() {
     if (textBuffer.length === 0) return;
@@ -67,25 +63,27 @@ export function segmentMemoriaContent(text: string): MemoriaSegment[] {
 
   function flushTable() {
     if (tableBuffer.length === 0) return;
-    const rows = parseTableLines(tableBuffer);
-    if (rows.length > 0) segments.push({ type: "table", rows });
+    const { rows, meta } = procesarBloqueTabla(tableBuffer);
+    if (rows.length > 0) {
+      segments.push({
+        type: "table",
+        rows,
+        cabecera: meta.cabecera,
+        esComparativaAnual: meta.esComparativaAnual,
+        esTablaTexto: meta.esTablaTexto,
+      });
+    }
     tableBuffer = [];
   }
 
   for (const line of lines) {
-    if (isTableLine(line)) {
+    if (esLineaTabla(line)) {
       flushText();
-      // Dos tablas contiguas (sin texto): una nueva cabecera anual tras filas de
-      // datos inicia una tabla independiente en vez de fusionarlas.
       const cells = parseTableRow(line);
-      if (
-        tableBuffer.length > 0 &&
-        isAnnualHeaderRow(cells) &&
-        tableBuffer.some((l) => !isAnnualHeaderRow(parseTableRow(l)))
-      ) {
+      if (tableBuffer.length > 0 && debeIniciarNuevaTabla(cells, tableBuffer)) {
         flushTable();
       }
-      tableBuffer.push(line);
+      tableBuffer.push(cells);
     } else {
       flushTable();
       textBuffer.push(line);
@@ -96,3 +94,11 @@ export function segmentMemoriaContent(text: string): MemoriaSegment[] {
   flushTable();
   return segments;
 }
+
+/** Convierte filas enriquecidas a matriz plana (p. ej. para diff). */
+export function tableRowsToMatrix(rows: MemoriaTableRow[]): string[][] {
+  return rows.map((r) => [...r.cells]);
+}
+
+/** Detecta sub-concepto en celda de etiqueta (exportado para diff). */
+export { detectarSubconcepto };
