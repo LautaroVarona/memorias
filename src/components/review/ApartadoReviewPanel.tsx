@@ -83,7 +83,7 @@ export function ApartadoReviewPanel({
   }, [groups, onFilterChange]);
 
   const scrollToGroup = useCallback((num: string) => {
-    const id = num === "general" ? "apartado-general" : `apartado-${num}`;
+    const id = `apartado-${num}`;
     window.requestAnimationFrame(() => {
       document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });

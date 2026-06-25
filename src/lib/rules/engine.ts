@@ -6,7 +6,6 @@ import { balanceRules } from "./builtin/balance";
 import { cierreRules } from "./builtin/cierre";
 import { closureRules } from "./builtin/closure";
 import { companyTypeRules } from "./builtin/company-type";
-import { consistencyGlobalRules } from "./builtin/consistency-global";
 import { crossRules } from "./builtin/cross";
 import { cuadreValoresMemoriaRules } from "./builtin/cuadre_valores_memoria";
 import { distribucionRules } from "./builtin/distribucion_resultados";
@@ -61,7 +60,6 @@ export const canonicalRules: RuleDefinition[] = [
   ...temporalRules,
   ...cierreRules,
   ...closureRules,
-  ...consistencyGlobalRules,
   ...crossRules,
   ...distribucionRules,
   ...cuadreValoresMemoriaRules,

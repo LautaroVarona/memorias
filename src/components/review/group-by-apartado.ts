@@ -28,8 +28,6 @@ export interface ApartadoReviewGroup {
   memoriaDiff: MemoriaDiffSummary;
 }
 
-const GENERAL_NUM = "general";
-
 function apartadoNumFromSection(sec: ApartadoMemoria): string {
   return sec.numero !== undefined ? String(sec.numero).padStart(2, "0") : sec.id;
 }
@@ -47,8 +45,6 @@ function validationApartados(v: ValidacionView): string[] {
     const fallback = extractApartadoInfo(v);
     if (fallback) nums.add(fallback.num);
   }
-
-  if (nums.size === 0) nums.add(GENERAL_NUM);
   return [...nums];
 }
 
@@ -59,8 +55,6 @@ function worstStatus(counts: { critical: number; warning: number }): ApartadoSta
 }
 
 function compareApartadoNum(a: string, b: string): number {
-  if (a === GENERAL_NUM) return 1;
-  if (b === GENERAL_NUM) return -1;
   const na = parseInt(a.replace(/\D/g, ""), 10);
   const nb = parseInt(b.replace(/\D/g, ""), 10);
   if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
@@ -120,21 +114,10 @@ export function buildApartadoGroups(
 
   for (const v of filtered) {
     const targets = validationApartados(v);
+    if (targets.length === 0) continue;
     for (const num of targets) {
-      let group = map.get(num);
-      if (!group) {
-        const info = extractApartadoInfo(v);
-        group = {
-          num,
-          title: info?.num === num ? info.title : undefined,
-          contenido: undefined,
-          status: "ok",
-          validations: [],
-          counts: { critical: 0, warning: 0, pass: 0 },
-          memoriaDiff: summarizeMemoriaDiff("", ""),
-        };
-        map.set(num, group);
-      }
+      const group = map.get(num);
+      if (!group) continue;
 
       if (group.validations.some((existing) => existing.id === v.id)) continue;
       group.validations.push(v);
@@ -172,7 +155,6 @@ export function countApartadoStatuses(groups: ApartadoReviewGroup[]): Record<Apa
 }
 
 export function formatApartadoHeading(group: ApartadoReviewGroup): string {
-  if (group.num === GENERAL_NUM) return "Revisión general";
   const prefix = /^\d+$/.test(group.num) ? `${group.num}. ` : "";
   return `${prefix}${group.title ?? `Apartado ${group.num}`}`;
 }

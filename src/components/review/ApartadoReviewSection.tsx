@@ -110,8 +110,8 @@ export function ApartadoReviewSection({
 
   return (
     <article
-      id={group.num === "general" ? "apartado-general" : `apartado-${group.num}`}
-      data-apartado={group.num === "general" ? undefined : group.num}
+      id={`apartado-${group.num}`}
+      data-apartado={group.num}
       data-memoria-diff={emphasizeMemoriaDiff ? "structural" : group.memoriaDiff.hasDiff ? "expected" : undefined}
       className={`scroll-mt-4 rounded-xl border ${STATUS_RING[group.status]} ${severityBorderClass(group.status)} border-l-4`}
     >

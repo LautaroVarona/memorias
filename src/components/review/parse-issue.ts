@@ -142,7 +142,14 @@ export function isInterannualStatOnly(ruleId: string): boolean {
 
 /** Validaciones de expediente/documentos; no van en tarjetas por apartado. */
 export function isExpedienteLevelOnly(ruleId: string): boolean {
-  return ruleId === "TEMP_003";
+  return (
+    ruleId === "TEMP_003" ||
+    ruleId.startsWith("CONSISTENCIA_GLOBAL_") ||
+    ruleId === "INTER_002" ||
+    ruleId === "INTER_003" ||
+    ruleId === "INTER_004" ||
+    ruleId.startsWith("NARR_ADV_")
+  );
 }
 
 /** Reglas cuyo fallo suele implicar diferencia entre memorias N y N-1. */
