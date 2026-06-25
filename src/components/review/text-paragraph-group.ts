@@ -58,17 +58,31 @@ function lineaEsContinuacionForzada(anterior: string): boolean {
   return false;
 }
 
+function lineaEsNuevoParrafoProsa(anterior: string, line: string): boolean {
+  const p = anterior.trim();
+  const t = line.trim();
+  if (t.length < 36 || !/^[A-ZÁÉÍÓÚÑ]/.test(t)) return false;
+  if (PATRON_ITEM_LISTA.test(t) || /^[a-z]\)\s/i.test(t)) return false;
+  if (/[.!?]$/.test(p)) return true;
+  return t.length >= 72;
+}
+
 function lineaEsContinuacion(anterior: string, line: string): boolean {
   const p = anterior.trim();
   const t = line.trim();
   if (!p || !t) return false;
+  if (lineaEsNuevoParrafoProsa(p, t)) return false;
   if (prefijoListaIncompleto(p)) return true;
   if (encabezadoSubseccionLista(p) && lineaEsPrefijoColonLista(t)) return true;
   // Un encabezado de sección (p. ej. "Identificación") no se fusiona con el párrafo siguiente.
   if (lineaIniciaUnidad(p) && !prefijoListaIncompleto(p)) return false;
   if (lineaIniciaUnidad(t) && !lineaEsContinuacionForzada(p)) return false;
   if (p.endsWith("-")) return true;
-  if (!/[.!?:;]$/.test(p)) return true;
+  if (!/[.!?:;]$/.test(p)) {
+    if (/^[a-záéíóúñ(,]/.test(t) && t.length < 120) return true;
+    if (t.length <= 48 && !/^[A-ZÁÉÍÓÚÑ]/.test(t)) return true;
+    return false;
+  }
   if (/^[a-záéíóúñ(,]/.test(t) && t.length < 120) return true;
   if (t.length <= 40 && /^[a-záéíóúñ]/.test(t) && /[.,]$/.test(t)) return true;
   return false;
@@ -145,13 +159,18 @@ export function agruparLineasEnParrafos(lines: string[]): string[] {
   return blocks;
 }
 
-/** Separa ítems a) b) c) o viñetas - pegados en un mismo párrafo. */
+/** Separa ítems a) b) c), viñetas y párrafos pegados en un mismo bloque. */
 export function desglosarItemsLista(block: string): string[] {
   const t = block.trim();
   if (!t) return [];
 
-  const porLetra = t.split(/(?=(?:^|\s)[a-z]\)\s)/i).map((s) => s.trim()).filter(Boolean);
-  if (porLetra.length > 1) return porLetra;
+  const porLetra = t
+    .split(/(?=(?:^|\n)[a-z]\)\s)/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (porLetra.length > 1) {
+    return porLetra.flatMap((parte) => desglosarItemsLista(parte));
+  }
 
   let porGuion = t
     .split(/(?=(?:^|[\n:])\s*[-–—]\s)/)
@@ -164,6 +183,13 @@ export function desglosarItemsLista(block: string): string[] {
       .filter(Boolean);
   }
   if (porGuion.length > 1) return porGuion;
+
+  if (t.includes("\n")) {
+    const lineas = t.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lineas.length > 1) {
+      return agruparLineasEnParrafos(lineas).flatMap((p) => desglosarItemsLista(p));
+    }
+  }
 
   return [t];
 }
@@ -208,7 +234,18 @@ function fusionarPrefijosColonHuérfanos(blocks: string[]): string[] {
 /** Descompone bloques en ítems homogéneos para alinear memorias con distinta maquetación. */
 export function normalizarBloquesComparacion(blocks: string[]): string[] {
   const desglosados = blocks.flatMap((b) => desglosarItemsLista(b));
-  return fusionarPrefijosColonHuérfanos(desglosados);
+  const fusionados = fusionarPrefijosColonHuérfanos(desglosados);
+  return fusionados.flatMap((b) => {
+    const t = b.trim();
+    if (t.length > 280 && t.includes(". ")) {
+      const partes = t
+        .split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ"«])/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (partes.length > 1) return partes.flatMap((p) => desglosarItemsLista(p));
+    }
+    return [t];
+  });
 }
 
 export function lineasDeTexto(text: string): string[] {

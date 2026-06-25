@@ -45,7 +45,8 @@ const CHAR_MARK: Record<CharDiffSegment["kind"], string> = {
   added: "rounded-sm bg-red-200/90 px-px font-medium text-red-950",
 };
 
-const CELL_BASE = "whitespace-pre-wrap break-words py-2 pr-2 text-slate-700";
+const CELL_BASE =
+  "min-w-0 whitespace-pre-wrap break-words py-2 pr-2 text-left text-slate-700 [text-align:left] [word-spacing:normal]";
 
 function CharDiffText({ segments }: { segments: CharDiffSegment[] }) {
   return (
@@ -129,16 +130,16 @@ function DiffRow({
   const bg = emphasized ? TEXT_ROW_BG_EMPHASIZED : TEXT_ROW_BG;
 
   return (
-    <div className="contents">
-      <div className={`${CELL_BASE} border-b border-slate-100/80 pr-4 ${bg[line.kind].prior}`}>
-        {!priorEmpty && (
+    <div className="grid w-full grid-cols-2 gap-x-0 border-b border-slate-100/80 text-[13px] leading-snug">
+      <div className={`${CELL_BASE} pr-4 ${bg[line.kind].prior}`}>
+        {!priorEmpty ? (
           <DiffText text={line.prior} line={line} side="prior" highlightQuery={highlightQuery} />
-        )}
+        ) : null}
       </div>
-      <div className={`${CELL_BASE} border-b border-slate-100/80 pl-4 ${bg[line.kind].current}`}>
-        {!currentEmpty && (
+      <div className={`${CELL_BASE} pl-4 ${bg[line.kind].current}`}>
+        {!currentEmpty ? (
           <DiffText text={line.current} line={line} side="current" highlightQuery={highlightQuery} />
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -322,10 +323,7 @@ function FlatCompareContent({
       <div className="relative z-0 flex flex-col gap-0">
         {grupos.map((grupo, gi) =>
           grupo.type === "text" ? (
-            <div
-              key={`txt-${gi}`}
-              className="grid w-full grid-cols-2 gap-x-0 text-[13px] leading-snug"
-            >
+            <div key={`txt-${gi}`} className="flex w-full flex-col">
               {grupo.lines.map((line, i) => (
                 <DiffRow
                   key={i}
