@@ -159,39 +159,99 @@ export function agruparLineasEnParrafos(lines: string[]): string[] {
   return blocks;
 }
 
-/** Separa ítems a) b) c), viñetas y párrafos pegados en un mismo bloque. */
-export function desglosarItemsLista(block: string): string[] {
-  const t = block.trim();
+function asegurarPrefijoGuion(texto: string): string {
+  const t = texto.trim();
+  if (/^[-–—]\s/.test(t)) return t.replace(/^[-–—]/, "-");
+  return `- ${t}`;
+}
+
+function esEncabezadoConDosPuntos(texto: string): boolean {
+  const t = texto.trim();
+  return /^(?:[a-z]\)\s*)?[^:]+:\s*$/.test(t) && !/^[-–—]/.test(t);
+}
+
+function esIntroProsaSubseccion(texto: string): boolean {
+  const t = texto.trim().replace(/^[-–—]\s*/, "");
+  if (t.length < 40) return false;
+  return /^(?:son|se |la |los |las |el |en |para |cuando|calificaci|durante|asimismo)/i.test(t);
+}
+
+/**
+ * Descompone cualquier bloque en unidades atómicas comparables:
+ * encabezado a)/b)/c), viñetas - y párrafos sueltos.
+ */
+export function explotarBloqueUniforme(block: string): string[] {
+  const t = block
+    .trim()
+    .replace(/\r\n/g, "\n")
+    .replace(/[\u2212\u2013\u2014]/g, "-");
   if (!t) return [];
 
-  const porLetra = t
-    .split(/(?=(?:^|\n)[a-z]\)\s)/i)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (porLetra.length > 1) {
-    return porLetra.flatMap((parte) => desglosarItemsLista(parte));
+  if (t.includes("\n")) {
+    return agruparLineasEnParrafos(t.split("\n").map((l) => l.trim()).filter(Boolean)).flatMap(
+      (p) => explotarBloqueUniforme(p)
+    );
   }
 
-  let porGuion = t
-    .split(/(?=(?:^|[\n:])\s*[-–—]\s)/)
+  const secciones = t
+    .split(/(?=(?:^|\s)[a-z]\)\s+[A-ZÁÉÍÓÚÑ])/i)
     .map((s) => s.trim())
     .filter(Boolean);
-  if (porGuion.length <= 1) {
-    porGuion = t
-      .split(/(?<=[,;])\s+[-–—]\s+/)
+  const fuente = secciones.length > 1 ? secciones : [t];
+
+  const out: string[] = [];
+  for (const sec of fuente) {
+    const colonGuion = sec.match(/^((?:[a-z]\)\s*)?[^:]+:\s*)\s*-\s+([\s\S]+)$/i);
+    if (colonGuion) {
+      out.push(colonGuion[1].trim());
+      const resto = colonGuion[2].trim();
+      if (esIntroProsaSubseccion(resto)) {
+        out.push(resto.replace(/^[-–—]\s*/, ""));
+        continue;
+      }
+      const viñetas = resto
+        .split(/(?=\s+-\s+)/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (viñetas.length > 1) {
+        out.push(...viñetas.map(asegurarPrefijoGuion));
+      } else {
+        out.push(asegurarPrefijoGuion(resto));
+      }
+      continue;
+    }
+
+    const viñetas = sec
+      .split(/(?=(?:^|\s)-\s+)/)
       .map((s) => s.trim())
       .filter(Boolean);
-  }
-  if (porGuion.length > 1) return porGuion;
-
-  if (t.includes("\n")) {
-    const lineas = t.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (lineas.length > 1) {
-      return agruparLineasEnParrafos(lineas).flatMap((p) => desglosarItemsLista(p));
+    if (viñetas.length > 1) {
+      if (!/^-\s/.test(viñetas[0]) && esEncabezadoConDosPuntos(viñetas[0])) {
+        out.push(viñetas[0]);
+        out.push(...viñetas.slice(1).map(asegurarPrefijoGuion));
+      } else if (!/^-\s/.test(viñetas[0]) && /:\s*$/.test(viñetas[0])) {
+        out.push(viñetas[0]);
+        out.push(...viñetas.slice(1).map(asegurarPrefijoGuion));
+      } else {
+        out.push(...viñetas.map(asegurarPrefijoGuion));
+      }
+      continue;
     }
+
+    if (esEncabezadoConDosPuntos(sec)) {
+      out.push(sec);
+      continue;
+    }
+
+    out.push(sec.startsWith("-") ? asegurarPrefijoGuion(sec) : sec);
   }
 
-  return [t];
+  return out.filter(Boolean);
+}
+
+/** Separa ítems a) b) c), viñetas y párrafos pegados en un mismo bloque. */
+export function desglosarItemsLista(block: string): string[] {
+  return explotarBloqueUniforme(block);
 }
 
 /** Encabezado de subsección tipo "a) Activos financieros:" (sin viñeta). */
@@ -233,19 +293,35 @@ function fusionarPrefijosColonHuérfanos(blocks: string[]): string[] {
 
 /** Descompone bloques en ítems homogéneos para alinear memorias con distinta maquetación. */
 export function normalizarBloquesComparacion(blocks: string[]): string[] {
-  const desglosados = blocks.flatMap((b) => desglosarItemsLista(b));
-  const fusionados = fusionarPrefijosColonHuérfanos(desglosados);
-  return fusionados.flatMap((b) => {
-    const t = b.trim();
-    if (t.length > 280 && t.includes(". ")) {
-      const partes = t
-        .split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ"«])/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (partes.length > 1) return partes.flatMap((p) => desglosarItemsLista(p));
-    }
-    return [t];
-  });
+  const desglosados = blocks.flatMap((b) => explotarBloqueUniforme(b));
+  return fusionarPrefijosColonHuérfanos(desglosados);
+}
+
+/** Clave semántica estable para emparejar bloques entre memorias con distinta maquetación. */
+export function claveSemanticaBloque(block: string): string {
+  const t = block.trim();
+  if (!t) return "";
+
+  if (esEncabezadoSubseccionLista(t) || esEncabezadoConDosPuntos(t)) {
+    return `h:${etiquetaEncabezadoSubseccion(t)}`;
+  }
+
+  const sinGuion = t.replace(/^[-–—]\s*/, "").trim();
+  if (/^[-–—]/.test(t)) {
+    return `b:${normalizarClaveTexto(sinGuion)}`;
+  }
+
+  return `p:${normalizarClaveTexto(t)}`;
+}
+
+function normalizarClaveTexto(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.;:]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function lineasDeTexto(text: string): string[] {

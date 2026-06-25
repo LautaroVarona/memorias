@@ -11,6 +11,7 @@ import {
 import { segmentMemoriaContent, type MemoriaSegment } from "./parse-pipe-table";
 import {
   agruparLineasEnParrafos,
+  claveSemanticaBloque,
   esEncabezadoSubseccionLista,
   etiquetaEncabezadoSubseccion,
   lineasDeTexto,
@@ -40,6 +41,7 @@ function bloquesListaEquivalentes(a: string, b: string): boolean {
   const strip = (s: string) =>
     s
       .trim()
+      .replace(/^[-–—]\s*/, "")
       .replace(/[.;:]+$/g, "")
       .replace(/\s+/g, " ");
   return (
@@ -48,9 +50,20 @@ function bloquesListaEquivalentes(a: string, b: string): boolean {
   );
 }
 
+function elegirTextoDisplay(a: string, b: string): string {
+  if (/^[a-z]\)\s/i.test(a.trim())) return a.trim();
+  if (/^[a-z]\)\s/i.test(b.trim())) return b.trim();
+  if (/^[-–—]\s/.test(a.trim())) return a.trim().replace(/^[-–—]/, "-");
+  if (/^[-–—]\s/.test(b.trim())) return b.trim().replace(/^[-–—]/, "-");
+  return (a.trim().length >= b.trim().length ? a : b).trim();
+}
+
 function blocksMatch(a: string, b: string): boolean {
   if (textosEquivalentes(a, b)) return true;
   if (bloquesListaEquivalentes(a, b)) return true;
+  const ka = claveSemanticaBloque(a);
+  const kb = claveSemanticaBloque(b);
+  if (ka && ka === kb) return true;
   if (esEncabezadoSubseccionLista(a) && esEncabezadoSubseccionLista(b)) {
     return etiquetaEncabezadoSubseccion(a) === etiquetaEncabezadoSubseccion(b);
   }
@@ -182,7 +195,13 @@ function classifyPair(prior: string, current: string): ComparedLine {
   const p = normalizeTextForDiff(prior).trim();
   const c = normalizeTextForDiff(current).trim();
   if (p === c || parrafosEquivalentes(p, c) || textosEquivalentes(p, c)) {
-    const display = textoDisplayParrafo(p, c);
+    const display = elegirTextoDisplay(p, c);
+    return { kind: "unchanged", prior: display, current: display };
+  }
+  const kp = claveSemanticaBloque(p);
+  const kc = claveSemanticaBloque(c);
+  if (kp && kp === kc) {
+    const display = elegirTextoDisplay(p, c);
     return { kind: "unchanged", prior: display, current: display };
   }
   if (
@@ -190,11 +209,11 @@ function classifyPair(prior: string, current: string): ComparedLine {
     esEncabezadoSubseccionLista(c) &&
     etiquetaEncabezadoSubseccion(p) === etiquetaEncabezadoSubseccion(c)
   ) {
-    const display = (/^[a-z]\)/i.test(p) ? p : c).trim();
+    const display = elegirTextoDisplay(p, c);
     return { kind: "unchanged", prior: display, current: display };
   }
   if (bloquesListaEquivalentes(p, c)) {
-    const display = p.length >= c.length ? p : c;
+    const display = elegirTextoDisplay(p, c);
     return { kind: "unchanged", prior: display, current: display };
   }
   if (isSoloCambioEsperado(p, c)) {
