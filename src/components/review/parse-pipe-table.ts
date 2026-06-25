@@ -27,27 +27,6 @@ export function cellLooksNumeric(cell: string): boolean {
   return /^[\d\s.,\-–—()+€%]+$/.test(t);
 }
 
-function rowHasContent(cells: string[]): boolean {
-  return cells.some((c) => c.trim().length >= 1);
-}
-
-function filterEmptyDataRows(rows: MemoriaTableRow[]): MemoriaTableRow[] {
-  if (rows.length === 0) return rows;
-  const [header, ...body] = rows;
-  const filteredBody = body.filter((r) => rowHasContent(r.cells));
-  if (filteredBody.length === 0) {
-    return rowHasContent(header.cells) ? [header] : [];
-  }
-  return [header, ...filteredBody];
-}
-
-function parseTableLines(lines: string[]): MemoriaTableRow[] {
-  const raw = lines.filter(esLineaTabla).map(parseTableRow).filter((r) => r.length >= 2);
-  if (raw.length === 0) return [];
-  const { rows } = procesarBloqueTabla(raw);
-  return filterEmptyDataRows(rows);
-}
-
 export function segmentMemoriaContent(text: string): MemoriaSegment[] {
   const lines = text.split("\n");
   const segments: MemoriaSegment[] = [];

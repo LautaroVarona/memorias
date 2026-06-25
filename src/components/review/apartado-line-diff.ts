@@ -167,8 +167,8 @@ function pushComparedLine(result: ComparedBlock[], line: ComparedLine) {
 
 /** Fusiona bloques consecutivos en el lado más largo para alinear memorias con distinta maquetación. */
 function equilibrarListasBloques(a: string[], b: string[]): [string[], string[]] {
-  let left = [...a];
-  let right = [...b];
+  const left = [...a];
+  const right = [...b];
   let guard = 0;
 
   while (left.length !== right.length && guard++ < 80) {
