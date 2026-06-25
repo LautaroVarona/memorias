@@ -26,13 +26,17 @@ export interface ValidacionPropuestaExcel {
   reservasVoluntarias?: ValidacionNumerica;
 }
 
+function normalizeTrackedNumber(value: number | null | undefined): number | undefined {
+  return value ?? undefined;
+}
+
 function compararCifras(
-  memoria: TrackingValue<number> | undefined,
-  excel: TrackingValue<number> | undefined,
+  memoria: TrackingValue<number> | null | undefined,
+  excel: TrackingValue<number> | null | undefined,
   tolerancia = 1
 ): ValidacionNumerica {
-  const valorMemoria = unwrapValue(memoria);
-  const valorExcel = unwrapValue(excel);
+  const valorMemoria = normalizeTrackedNumber(unwrapValue(memoria));
+  const valorExcel = normalizeTrackedNumber(unwrapValue(excel));
 
   if (valorMemoria === undefined || valorExcel === undefined) {
     return { cuadra: true, valorMemoria, valorExcel, comparable: false };
@@ -52,7 +56,7 @@ function compararCifras(
 export function validatePropuestaWithExcel(
   propuesta: PropuestaAplicacion | undefined,
   accounts: CuentaNormalizada[],
-  calcisReserva?: TrackingValue<number>,
+  calcisReserva?: TrackingValue<number> | null,
   tolerancia = 1
 ): ValidacionPropuestaExcel {
   const cuenta129 = cuentaByPrefixTracked(accounts, "129");
