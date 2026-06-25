@@ -7,7 +7,14 @@ import type { ValidacionView } from "./types";
 import { ApartadoMemoriaCompare } from "./ApartadoMemoriaCompare";
 import { IssueCard } from "./IssueCard";
 import { SeverityBadge, severityBorderClass } from "./SeverityBadge";
-import { isCritical, isMemoriaComparisonRule, isPass, isWarning } from "./parse-issue";
+import {
+  extractApartadoFromEvidence,
+  isCritical,
+  isMemoriaComparisonRule,
+  isPass,
+  isWarning,
+  normalizeEvidenceType,
+} from "./parse-issue";
 
 interface ApartadoReviewSectionProps {
   group: ApartadoReviewGroup;
@@ -94,16 +101,42 @@ export function ApartadoReviewSection({
     onOpenChange?.(next);
   }
 
-  const criticos = group.validations.filter(isCritical);
-  const advertencias = group.validations.filter(isWarning);
-  const superadas = group.validations.filter(isPass);
+  function scopeValidationToApartado(validacion: ValidacionView): ValidacionView | null {
+    const memoryEvidence = validacion.evidencia.filter(
+      (ev) => normalizeEvidenceType(ev) === "memory"
+    );
+    if (memoryEvidence.length === 0) return validacion;
+
+    const scopedMemoryEvidence = memoryEvidence.filter((ev) => {
+      const info = extractApartadoFromEvidence(ev);
+      return info?.num === group.num;
+    });
+    if (scopedMemoryEvidence.length === 0) return null;
+
+    const nonMemoryEvidence = validacion.evidencia.filter(
+      (ev) => normalizeEvidenceType(ev) !== "memory"
+    );
+
+    return {
+      ...validacion,
+      evidencia: [...nonMemoryEvidence, ...scopedMemoryEvidence],
+    };
+  }
+
+  const scopedValidations = group.validations
+    .map(scopeValidationToApartado)
+    .filter((v): v is ValidacionView => v !== null);
+
+  const criticos = scopedValidations.filter(isCritical);
+  const advertencias = scopedValidations.filter(isWarning);
+  const superadas = scopedValidations.filter(isPass);
   const hasIssues = criticos.length > 0 || advertencias.length > 0;
   const [showPasses, setShowPasses] = useState(false);
   const hasCompare =
     Boolean(group.contenido?.trim()) || Boolean(group.contenidoAnterior?.trim());
 
   const { hasStructuralDiff, structuralCount, expectedCount } = group.memoriaDiff;
-  const hasMemoriaRuleIssue = group.validations.some(
+  const hasMemoriaRuleIssue = scopedValidations.some(
     (v) => (isCritical(v) || isWarning(v)) && isMemoriaComparisonRule(v.ruleId)
   );
   const emphasizeMemoriaDiff = hasStructuralDiff || hasMemoriaRuleIssue;
@@ -136,18 +169,18 @@ export function ApartadoReviewSection({
             <p className="mt-1 text-[11px] text-slate-500">
               {group.counts.critical > 0 && (
                 <span className="font-medium text-red-600">
-                  {group.counts.critical} crítico{group.counts.critical !== 1 ? "s" : ""}
+                  {criticos.length} crítico{criticos.length !== 1 ? "s" : ""}
                 </span>
               )}
-              {group.counts.critical > 0 && group.counts.warning > 0 && " · "}
-              {group.counts.warning > 0 && (
+              {criticos.length > 0 && advertencias.length > 0 && " · "}
+              {advertencias.length > 0 && (
                 <span className="font-medium text-amber-600">
-                  {group.counts.warning} advertencia{group.counts.warning !== 1 ? "s" : ""}
+                  {advertencias.length} advertencia{advertencias.length !== 1 ? "s" : ""}
                 </span>
               )}
               {emphasizeMemoriaDiff && (
                 <>
-                  {(group.counts.critical > 0 || group.counts.warning > 0) && " · "}
+                  {(criticos.length > 0 || advertencias.length > 0) && " · "}
                   <span className="font-medium text-red-800">Ruptura lógica entre memorias</span>
                 </>
               )}
