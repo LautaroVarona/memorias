@@ -5,7 +5,6 @@ import type { ApartadoReviewGroup } from "./group-by-apartado";
 import { formatApartadoHeading } from "./group-by-apartado";
 import type { ValidacionView } from "./types";
 import { ApartadoMemoriaCompare } from "./ApartadoMemoriaCompare";
-import { IssueCard } from "./IssueCard";
 import { SeverityBadge, severityBorderClass } from "./SeverityBadge";
 import {
   extractApartadoFromEvidence,
@@ -202,17 +201,6 @@ export function ApartadoReviewSection({
 
       {open && (
         <div className="border-t border-slate-200/80">
-          {hasIssues && !diffsOnly && (
-            <div className="space-y-3 px-4 pt-4">
-              {criticos.map((v) => (
-                <IssueCard key={v.id} validacion={v} variant="critical" embedded />
-              ))}
-              {advertencias.map((v) => (
-                <IssueCard key={v.id} validacion={v} variant="warning" embedded />
-              ))}
-            </div>
-          )}
-
           {hasCompare && (
             <div className="bg-slate-50 px-4 py-5">
               <ApartadoMemoriaCompare
