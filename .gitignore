@@ -46,6 +46,9 @@ prisma/*.db-journal
 # uploads
 /uploads
 
+# local fixtures / documentos sensibles
+/examples/
+
 # app logs
 /logs
 
