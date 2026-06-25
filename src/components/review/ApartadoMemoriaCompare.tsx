@@ -25,7 +25,7 @@ interface ApartadoMemoriaCompareProps {
 
 const TEXT_ROW_BG: Record<LineDiffKind, { prior: string; current: string }> = {
   unchanged: { prior: "", current: "" },
-  expected: { prior: "bg-blue-50/60", current: "bg-blue-50/60" },
+  expected: { prior: "", current: "" },
   structural: { prior: "bg-red-50/50", current: "bg-red-50/50" },
   removed: { prior: "bg-red-50/70", current: "" },
   added: { prior: "", current: "bg-red-50/70" },
@@ -33,7 +33,7 @@ const TEXT_ROW_BG: Record<LineDiffKind, { prior: string; current: string }> = {
 
 const TEXT_ROW_BG_EMPHASIZED: Record<LineDiffKind, { prior: string; current: string }> = {
   unchanged: { prior: "", current: "" },
-  expected: { prior: "bg-blue-50/80", current: "bg-blue-50/80" },
+  expected: { prior: "", current: "" },
   structural: { prior: "bg-red-100/60", current: "bg-red-100/60" },
   removed: { prior: "bg-red-100/80", current: "" },
   added: { prior: "", current: "bg-red-100/80" },
@@ -130,12 +130,12 @@ function DiffRow({
 
   return (
     <div className="contents">
-      <div className={`${CELL_BASE} border-b border-slate-100/80 pr-6 ${bg[line.kind].prior}`}>
+      <div className={`${CELL_BASE} border-b border-slate-100/80 pr-4 ${bg[line.kind].prior}`}>
         {!priorEmpty && (
           <DiffText text={line.prior} line={line} side="prior" highlightQuery={highlightQuery} />
         )}
       </div>
-      <div className={`${CELL_BASE} border-b border-slate-100/80 pl-6 ${bg[line.kind].current}`}>
+      <div className={`${CELL_BASE} border-b border-slate-100/80 pl-4 ${bg[line.kind].current}`}>
         {!currentEmpty && (
           <DiffText text={line.current} line={line} side="current" highlightQuery={highlightQuery} />
         )}
@@ -260,7 +260,7 @@ function CompareLegend() {
     <p className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-slate-500">
       <span className="inline-flex items-center gap-1">
         <span className="h-2 w-3 rounded-sm bg-blue-200" />
-        Sugerencia inteligente
+        Solo cambian años o cifras
       </span>
       <span className="inline-flex items-center gap-1">
         <span className="h-2 w-3 rounded-sm bg-red-200" />
@@ -283,17 +283,14 @@ function FlatCompareContent({
   highlightQuery?: string;
   emphasizeStructural?: boolean;
 }) {
-  // Renderiza los bloques en su ORDEN original (texto y tablas intercalados),
-  // agrupando líneas de texto consecutivas en una rejilla de 2 columnas.
+  // Cada bloque de texto es una fila alineada (prior | current); no subdividir en filas sueltas.
   const grupos: (
     | { type: "text"; lines: ComparedLine[] }
     | { type: "table"; table: ComparedTable }
   )[] = [];
   for (const block of blocks) {
     if (block.type === "text") {
-      const last = grupos[grupos.length - 1];
-      if (last?.type === "text") last.lines.push(block.line);
-      else grupos.push({ type: "text", lines: [block.line] });
+      grupos.push({ type: "text", lines: [block.line] });
     } else {
       grupos.push({ type: "table", table: block.table });
     }

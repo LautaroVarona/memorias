@@ -13,8 +13,21 @@ const MESES_ES =
  * Normaliza texto para comparación interanual ignorando años, fechas e importes.
  * Dos memorias consecutivas suelen diferir solo en cifras y ejercicios; eso no es un error.
  */
+/** Quita marcadores de lista (-, a), viñetas) para comparar el contenido semántico. */
+export function normalizarMarcadoresLista(texto: string): string {
+  return texto
+    .split(/\n/)
+    .map((linea) =>
+      linea
+        .trim()
+        .replace(/^[-–—•]\s+/, "")
+        .replace(/^[a-z]\)\s+/i, "")
+    )
+    .join("\n");
+}
+
 export function normalizarTextoComparacionInteranual(texto: string): string {
-  return normalizarTextoApartado(texto)
+  return normalizarTextoApartado(normalizarMarcadoresLista(texto))
     .replace(
       new RegExp(`\\b\\d{1,2}\\s+de\\s+(?:${MESES_ES})\\s+de\\s+\\d{4}\\b`, "gi"),
       " "

@@ -6,7 +6,7 @@
 const PATRON_ITEM_LISTA = /^(?:[a-z]\)|-\s|•\s|–\s|—\s)/i;
 const PATRON_APARTADO = /^\d{2}\s+[A-ZÁÉÍÓÚÑ]/;
 const PATRON_TITULO_SECCION =
-  /^(?:identificaci[oó]n|objeto\s+social|normas\s+de|pol[ií]tica|criterios|riesgo|nota\s+\d)/i;
+  /^(?:identificaci[oó]n|objeto\s+social|normas\s+de|pol[ií]tica|criterios|riesgo|nota\s+\d|en todo caso)/i;
 
 function lineaIniciaUnidad(line: string): boolean {
   const t = line.trim();
@@ -21,10 +21,15 @@ function lineaIniciaUnidad(line: string): boolean {
   return false;
 }
 
-/** Prefijo de lista incompleto en la línea anterior (p. ej. solo "a)"). */
 function prefijoListaIncompleto(text: string): boolean {
   const t = text.trim();
   return /^[a-z]\)$/i.test(t) || (t.endsWith(":") && t.length < 48);
+}
+
+function lineaEsContinuacionForzada(anterior: string): boolean {
+  if (prefijoListaIncompleto(anterior)) return true;
+  if (/^[a-z]\)\s/i.test(anterior.trim()) && anterior.trim().length <= 4) return true;
+  return false;
 }
 
 function lineaEsContinuacion(anterior: string, line: string): boolean {
@@ -32,21 +37,11 @@ function lineaEsContinuacion(anterior: string, line: string): boolean {
   const t = line.trim();
   if (!p || !t) return false;
   if (prefijoListaIncompleto(p)) return true;
-
-  if (lineaIniciaUnidad(t) && !lineaEsContinuacionForzada(p, t)) return false;
-
+  if (lineaIniciaUnidad(t) && !lineaEsContinuacionForzada(p)) return false;
   if (p.endsWith("-")) return true;
   if (!/[.!?:;]$/.test(p)) return true;
   if (/^[a-záéíóúñ(,]/.test(t) && t.length < 120) return true;
   if (t.length <= 40 && /^[a-záéíóúñ]/.test(t) && /[.,]$/.test(t)) return true;
-
-  return false;
-}
-
-/** "a)" seguido de texto en la línea siguiente siempre continúa. */
-function lineaEsContinuacionForzada(anterior: string, line: string): boolean {
-  if (prefijoListaIncompleto(anterior)) return true;
-  if (/^[a-z]\)\s/i.test(anterior.trim()) && anterior.trim().length <= 4) return true;
   return false;
 }
 
@@ -57,9 +52,6 @@ function unirLineas(anterior: string, line: string): string {
   return `${p} ${t}`;
 }
 
-/**
- * Convierte líneas físicas del extractor en bloques lógicos para diff interanual.
- */
 export function agruparLineasEnParrafos(lines: string[]): string[] {
   const blocks: string[] = [];
   let buf = "";
@@ -94,7 +86,25 @@ export function agruparLineasEnParrafos(lines: string[]): string[] {
   return blocks;
 }
 
-/** Extrae líneas no tabulares de un bloque de texto. */
+/** Separa ítems a) b) c) o viñetas - pegados en un mismo párrafo. */
+export function desglosarItemsLista(block: string): string[] {
+  const t = block.trim();
+  if (!t) return [];
+
+  const porLetra = t.split(/(?=(?:^|\s)[a-z]\)\s)/i).map((s) => s.trim()).filter(Boolean);
+  if (porLetra.length > 1) return porLetra;
+
+  const porGuion = t.split(/(?=(?:^|\n)\s*[-–—]\s)/).map((s) => s.trim()).filter(Boolean);
+  if (porGuion.length > 1) return porGuion;
+
+  return [t];
+}
+
+/** Descompone bloques en ítems homogéneos para alinear memorias con distinta maquetación. */
+export function normalizarBloquesComparacion(blocks: string[]): string[] {
+  return blocks.flatMap((b) => desglosarItemsLista(b));
+}
+
 export function lineasDeTexto(text: string): string[] {
   return text
     .split("\n")

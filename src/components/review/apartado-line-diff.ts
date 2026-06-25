@@ -9,7 +9,11 @@ import {
   type ComparedTable,
 } from "./apartado-table-diff";
 import { segmentMemoriaContent, type MemoriaSegment } from "./parse-pipe-table";
-import { agruparLineasEnParrafos, lineasDeTexto } from "./text-paragraph-group";
+import {
+  agruparLineasEnParrafos,
+  lineasDeTexto,
+  normalizarBloquesComparacion,
+} from "./text-paragraph-group";
 
 export type LineDiffKind = "unchanged" | "expected" | "structural" | "removed" | "added";
 
@@ -110,7 +114,7 @@ function splitTextBlocks(text: string): string[] {
   for (const seccion of fuente) {
     blocks.push(...agruparLineasEnParrafos(lineasDeTexto(seccion)));
   }
-  return blocks;
+  return normalizarBloquesComparacion(blocks);
 }
 
 function segmentKey(seg: MemoriaSegment): string {
@@ -131,13 +135,76 @@ function segmentsToBlocks(segments: MemoriaSegment[]): { key: string; segment: M
 function classifyPair(prior: string, current: string): ComparedLine {
   const p = normalizeTextForDiff(prior);
   const c = normalizeTextForDiff(current);
-  if (p === c || textosEquivalentes(p, c)) return { kind: "unchanged", prior: p, current: c };
-  if (isSoloCambioEsperado(p, c)) return { kind: "expected", prior: p, current: c };
+  if (p === c || textosEquivalentes(p, c)) {
+    return { kind: "unchanged", prior: p, current: c };
+  }
   return { kind: "structural", prior: p, current: c };
 }
 
+function appendParrafo(base: string, extra: string): string {
+  if (!base.trim()) return extra;
+  if (!extra.trim()) return base;
+  return `${base}\n\n${extra}`;
+}
+
+/** Fusiona filas consecutivas sin cambio en un único par alineado (evita una línea por fila). */
+function pushComparedLine(result: ComparedBlock[], line: ComparedLine) {
+  const prev = result[result.length - 1];
+  if (
+    line.kind === "unchanged" &&
+    prev?.type === "text" &&
+    prev.line.kind === "unchanged"
+  ) {
+    prev.line = {
+      kind: "unchanged",
+      prior: appendParrafo(prev.line.prior, line.prior),
+      current: appendParrafo(prev.line.current, line.current),
+    };
+    return;
+  }
+  result.push({ type: "text", line });
+}
+
+/** Fusiona bloques consecutivos en el lado más largo para alinear memorias con distinta maquetación. */
+function equilibrarListasBloques(a: string[], b: string[]): [string[], string[]] {
+  let left = [...a];
+  let right = [...b];
+  let guard = 0;
+
+  while (left.length !== right.length && guard++ < 80) {
+    if (left.length > right.length) {
+      let merged = false;
+      for (let i = 0; i < left.length - 1; i++) {
+        const joined = appendParrafo(left[i], left[i + 1]);
+        const target = right[i];
+        if (target !== undefined && blocksMatch(joined, target)) {
+          left.splice(i, 2, joined);
+          merged = true;
+          break;
+        }
+      }
+      if (!merged) break;
+    } else {
+      let merged = false;
+      for (let i = 0; i < right.length - 1; i++) {
+        const joined = appendParrafo(right[i], right[i + 1]);
+        const target = left[i];
+        if (target !== undefined && blocksMatch(joined, target)) {
+          right.splice(i, 2, joined);
+          merged = true;
+          break;
+        }
+      }
+      if (!merged) break;
+    }
+  }
+
+  return [left, right];
+}
+
 function pairTextBlocks(priorBlocks: string[], currentBlocks: string[]): ComparedBlock[] {
-  const changes = diffBlocks(priorBlocks, currentBlocks);
+  const [priorEq, currentEq] = equilibrarListasBloques(priorBlocks, currentBlocks);
+  const changes = diffBlocks(priorEq, currentEq);
   const result: ComparedBlock[] = [];
 
   let i = 0;
@@ -148,7 +215,7 @@ function pairTextBlocks(priorBlocks: string[], currentBlocks: string[]): Compare
       const priorRun = change.value as string[];
       const currentRun = change.paired ?? priorRun;
       for (let k = 0; k < priorRun.length; k++) {
-        result.push({ type: "text", line: classifyPair(priorRun[k], currentRun[k] ?? priorRun[k]) });
+        pushComparedLine(result, classifyPair(priorRun[k], currentRun[k] ?? priorRun[k]));
       }
       i++;
       continue;
@@ -167,13 +234,10 @@ function pairTextBlocks(priorBlocks: string[], currentBlocks: string[]): Compare
       addedBlocks.length > 0 &&
       textosEquivalentes(removedBlocks.join(" "), addedBlocks.join(" "));
     if (mergedMatch) {
-      result.push({
-        type: "text",
-        line: {
-          kind: "unchanged",
-          prior: normalizeTextForDiff(removedBlocks.join(" ")),
-          current: normalizeTextForDiff(addedBlocks.join(" ")),
-        },
+      pushComparedLine(result, {
+        kind: "unchanged",
+        prior: normalizeTextForDiff(removedBlocks.join("\n\n")),
+        current: normalizeTextForDiff(addedBlocks.join("\n\n")),
       });
       continue;
     }
@@ -183,7 +247,7 @@ function pairTextBlocks(priorBlocks: string[], currentBlocks: string[]): Compare
       const prior = removedBlocks[j] ?? "";
       const current = addedBlocks[j] ?? "";
       if (prior && current) {
-        result.push({ type: "text", line: classifyPair(prior, current) });
+        pushComparedLine(result, classifyPair(prior, current));
       } else if (prior) {
         result.push({ type: "text", line: { kind: "removed", prior, current: "" } });
       } else if (current) {
