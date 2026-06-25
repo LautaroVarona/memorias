@@ -55,12 +55,26 @@ function limpiarCeldaTabular(celda: string): string {
   return celda.replace(/[\u0000-\u0006\u0008-\u001F\u007F]/g, "").trim();
 }
 
+/** Separa celdas tabulares respetando celdas vacías (cada \\t o \\u0007 es un límite). */
+function splitCeldasTabulares(segmento: string): string[] {
+  const cells: string[] = [];
+  let buf = "";
+  for (let i = 0; i < segmento.length; i++) {
+    const c = segmento[i];
+    if (c === "\t" || c === "\u0007") {
+      cells.push(limpiarCeldaTabular(buf));
+      buf = "";
+    } else {
+      buf += c;
+    }
+  }
+  cells.push(limpiarCeldaTabular(buf));
+  while (cells.length > 1 && cells[cells.length - 1] === "") cells.pop();
+  return cells;
+}
+
 function filaTabularDesdeSegmento(segmento: string): string {
-  return segmento
-    .split(/[\t\u0007]+/)
-    .map(limpiarCeldaTabular)
-    .filter((c) => c.length > 0)
-    .join(" | ");
+  return splitCeldasTabulares(segmento).join(" | ");
 }
 
 /**
@@ -97,12 +111,7 @@ function normalizarTexto(texto: string): string {
     .split("\n")
     .map((line) => {
       if (!SEPARADOR_CELDA_TABULAR.test(line)) return line.trimEnd();
-      return line
-        .split(SEPARADOR_CELDA_TABULAR)
-        .map(limpiarCeldaTabular)
-        .join(" | ")
-        .replace(/(\s\|\s)+$/, " |")
-        .trimEnd();
+      return splitCeldasTabulares(line).join(" | ").trimEnd();
     })
     .join("\n");
 }

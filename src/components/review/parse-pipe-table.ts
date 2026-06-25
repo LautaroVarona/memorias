@@ -21,10 +21,10 @@ function isAnnualHeaderRow(cells: string[]): boolean {
 }
 
 export function parseTableRow(line: string): string[] {
-  return line
-    .split("|")
-    .map((c) => c.trim())
-    .filter((c) => c.length > 0);
+  const cells = line.split("|").map((c) => c.trim());
+  // Solo quitar celda vacía final por un pipe sobrante al final de la línea.
+  if (cells.length > 1 && cells[cells.length - 1] === "") cells.pop();
+  return cells;
 }
 
 export function cellLooksNumeric(cell: string): boolean {

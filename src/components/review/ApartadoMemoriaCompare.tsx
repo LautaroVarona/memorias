@@ -130,12 +130,12 @@ function DiffRow({
 
   return (
     <div className="contents">
-      <div className={`${CELL_BASE} border-b border-slate-100/80 ${bg[line.kind].prior}`}>
+      <div className={`${CELL_BASE} border-b border-slate-100/80 pr-6 ${bg[line.kind].prior}`}>
         {!priorEmpty && (
           <DiffText text={line.prior} line={line} side="prior" highlightQuery={highlightQuery} />
         )}
       </div>
-      <div className={`${CELL_BASE} border-b border-slate-100/80 ${bg[line.kind].current}`}>
+      <div className={`${CELL_BASE} border-b border-slate-100/80 pl-6 ${bg[line.kind].current}`}>
         {!currentEmpty && (
           <DiffText text={line.current} line={line} side="current" highlightQuery={highlightQuery} />
         )}
@@ -144,31 +144,28 @@ function DiffRow({
   );
 }
 
-/** Columna divisoria central: línea vertical fuerte entre memoria anterior y actual. */
-const DIVIDER_CELL = "w-0 border-l-[3px] border-slate-400/90 p-0";
-
 function padCells(cells: string[] | null, n: number): string[] {
   const out = [...(cells ?? [])];
   while (out.length < n) out.push("");
   return out;
 }
 
-function MemoriaCompareTable({
-  table,
-  priorLabel,
-  currentLabel,
+function MemoriaSideTable({
+  header,
+  cols,
+  rows,
+  side,
+  sharedCol,
   emphasizeStructural,
 }: {
-  table: ComparedTable;
-  priorLabel: string;
-  currentLabel: string;
+  header: string[];
+  cols: number;
+  rows: ComparedTable["rows"];
+  side: "prior" | "current";
+  sharedCol: number | null;
   emphasizeStructural?: boolean;
 }) {
-  const { priorHeader, currentHeader, priorCols, currentCols, priorSharedCol, currentSharedCol, rows } =
-    table;
-  if (rows.length === 0 && priorHeader.length === 0 && currentHeader.length === 0) return null;
-
-  const rowBg = (kind: typeof rows[number]["kind"]): string => {
+  const rowBg = (kind: ComparedTable["rows"][number]["kind"]): string => {
     if (kind === "structural") return emphasizeStructural ? "bg-red-100/70" : "bg-red-50/60";
     if (kind === "removed" || kind === "added") return "bg-red-50/50";
     return "";
@@ -176,65 +173,84 @@ function MemoriaCompareTable({
 
   const colAlign = (i: number) => (i === 0 ? "text-left" : "text-right font-mono tabular-nums");
 
-  const renderSide = (
-    cells: string[] | null,
-    cols: number,
-    sharedCol: number | null,
-    kind: typeof rows[number]["kind"],
-    keyPrefix: string
-  ) =>
-    padCells(cells, cols).map((cell, ci) => {
-      const highlight = kind === "structural" && ci === sharedCol;
-      const missing = cells === null;
-      return (
-        <td
-          key={`${keyPrefix}-${ci}`}
-          className={`whitespace-nowrap px-3 py-1.5 ${colAlign(ci)} ${
-            ci === 0 ? "font-medium text-slate-700" : "text-slate-800"
-          } ${highlight ? "font-semibold text-red-700" : ""}`}
-        >
-          {missing ? <span className="text-slate-300">—</span> : cell || (ci === 0 ? "" : "")}
-        </td>
-      );
-    });
+  return (
+    <table className="w-full min-w-max border-collapse border border-slate-200 text-xs">
+      <thead>
+        <tr className="border-b border-slate-200 bg-slate-100/70 font-semibold text-slate-700">
+          {padCells(header, cols).map((h, i) => (
+            <th key={i} className={`whitespace-nowrap px-3 py-1.5 ${i === 0 ? "text-left" : "text-right"}`}>
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, ri) => {
+          const cells = side === "prior" ? row.prior : row.current;
+          const missing = cells === null;
+          return (
+            <tr key={ri} className={`border-b border-slate-100 last:border-0 ${rowBg(row.kind)}`}>
+              {padCells(missing ? null : cells, cols).map((cell, ci) => {
+                const highlight = row.kind === "structural" && ci === sharedCol;
+                const empty = !cell.trim();
+                return (
+                  <td
+                    key={ci}
+                    className={`whitespace-nowrap px-3 py-1.5 ${colAlign(ci)} ${
+                      ci === 0 ? "font-medium text-slate-700" : "text-slate-800"
+                    } ${highlight ? "font-semibold text-red-700" : ""}`}
+                  >
+                    {missing ? (
+                      <span className="text-slate-300">—</span>
+                    ) : empty && ci > 0 ? (
+                      <span className="text-slate-300"> </span>
+                    ) : (
+                      cell
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function MemoriaCompareTable({
+  table,
+  emphasizeStructural,
+}: {
+  table: ComparedTable;
+  emphasizeStructural?: boolean;
+}) {
+  const { priorHeader, currentHeader, priorCols, currentCols, priorSharedCol, currentSharedCol, rows } =
+    table;
+  if (rows.length === 0 && priorHeader.length === 0 && currentHeader.length === 0) return null;
 
   return (
-    <div className="my-5 overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full border-collapse text-xs">
-        <thead>
-          <tr className="bg-slate-50 text-[10px] font-semibold uppercase tracking-wide">
-            <th colSpan={priorCols} className="px-3 py-1.5 text-left text-slate-500">
-              {priorLabel}
-            </th>
-            <th className={DIVIDER_CELL} aria-hidden />
-            <th colSpan={currentCols} className="px-3 py-1.5 text-left text-blue-900">
-              {currentLabel}
-            </th>
-          </tr>
-          <tr className="border-y border-slate-200 bg-slate-100/70 font-semibold text-slate-700">
-            {padCells(priorHeader, priorCols).map((h, i) => (
-              <th key={`ph-${i}`} className={`px-3 py-1.5 ${i === 0 ? "text-left" : "text-right"}`}>
-                {h}
-              </th>
-            ))}
-            <th className={DIVIDER_CELL} aria-hidden />
-            {padCells(currentHeader, currentCols).map((h, i) => (
-              <th key={`ch-${i}`} className={`px-3 py-1.5 ${i === 0 ? "text-left" : "text-right"}`}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, ri) => (
-            <tr key={ri} className={`border-b border-slate-100 last:border-0 ${rowBg(row.kind)}`}>
-              {renderSide(row.prior, priorCols, priorSharedCol, row.kind, `p${ri}`)}
-              <td className={DIVIDER_CELL} aria-hidden />
-              {renderSide(row.current, currentCols, currentSharedCol, row.kind, `c${ri}`)}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="my-5 grid grid-cols-2 gap-x-0">
+      <div className="min-w-0 overflow-x-auto pr-6">
+        <MemoriaSideTable
+          header={priorHeader}
+          cols={priorCols}
+          rows={rows}
+          side="prior"
+          sharedCol={priorSharedCol}
+          emphasizeStructural={emphasizeStructural}
+        />
+      </div>
+      <div className="min-w-0 overflow-x-auto pl-6">
+        <MemoriaSideTable
+          header={currentHeader}
+          cols={currentCols}
+          rows={rows}
+          side="current"
+          sharedCol={currentSharedCol}
+          emphasizeStructural={emphasizeStructural}
+        />
+      </div>
     </div>
   );
 }
@@ -284,38 +300,43 @@ function FlatCompareContent({
   }
 
   return (
-    <>
-      <div className="mb-3 grid grid-cols-2 gap-x-6 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        <div>{priorLabel}</div>
-        <div className="text-right text-blue-900">{currentLabel}</div>
+    <div className="relative">
+      <div
+        className="pointer-events-none absolute bottom-0 left-1/2 top-0 z-10 w-[3px] -translate-x-1/2 bg-slate-400"
+        aria-hidden
+      />
+
+      <div className="relative z-0 mb-3 grid grid-cols-2 gap-x-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <div className="pr-6">{priorLabel}</div>
+        <div className="pl-6 text-right text-blue-900">{currentLabel}</div>
       </div>
 
-      {grupos.map((grupo, gi) =>
-        grupo.type === "text" ? (
-          <div
-            key={`txt-${gi}`}
-            className="grid grid-cols-2 gap-x-6 text-[13px] leading-relaxed"
-          >
-            {grupo.lines.map((line, i) => (
-              <DiffRow
-                key={i}
-                line={line}
-                highlightQuery={highlightQuery}
-                emphasizeStructural={emphasizeStructural}
-              />
-            ))}
-          </div>
-        ) : (
-          <MemoriaCompareTable
-            key={`tbl-${gi}`}
-            table={grupo.table}
-            priorLabel={priorLabel}
-            currentLabel={currentLabel}
-            emphasizeStructural={emphasizeStructural}
-          />
-        )
-      )}
-    </>
+      <div className="relative z-0">
+        {grupos.map((grupo, gi) =>
+          grupo.type === "text" ? (
+            <div
+              key={`txt-${gi}`}
+              className="grid grid-cols-2 gap-x-0 text-[13px] leading-relaxed"
+            >
+              {grupo.lines.map((line, i) => (
+                <DiffRow
+                  key={i}
+                  line={line}
+                  highlightQuery={highlightQuery}
+                  emphasizeStructural={emphasizeStructural}
+                />
+              ))}
+            </div>
+          ) : (
+            <MemoriaCompareTable
+              key={`tbl-${gi}`}
+              table={grupo.table}
+              emphasizeStructural={emphasizeStructural}
+            />
+          )
+        )}
+      </div>
+    </div>
   );
 }
 

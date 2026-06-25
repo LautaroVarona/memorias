@@ -44,12 +44,48 @@ function normalizarEtiquetaFila(label: string): string {
 }
 
 function parseRowsFromText(text: string): string[][] {
-  return text
+  const rows = text
     .split("\n")
     .map((line) => limpiarCeldaTabla(line))
     .filter((line) => line.includes("|"))
     .map(parseTableRow)
     .filter((row) => row.length > 0);
+  return normalizarFilasTabla(rows);
+}
+
+/** Cabecera con columnas IMPORTE / año comparativo (3+ columnas). */
+function esCabeceraImportes(header: string[]): boolean {
+  if (header.length < 3) return false;
+  return header.slice(1).some((c) => /\bimporte\b/i.test(c) || /\b(19|20)\d{2}\b/.test(c));
+}
+
+/**
+ * Alinea cada fila al ancho de la cabecera y repara filas colapsadas donde se
+ * perdió la celda vacía del ejercicio actual (etiqueta | importe → etiqueta | | importe).
+ */
+function normalizarFilasTabla(rows: string[][]): string[][] {
+  if (rows.length === 0) return rows;
+  const header = rows[0];
+  const width = header.length;
+  const importes = esCabeceraImportes(header);
+
+  return rows.map((row, idx) => {
+    if (idx === 0) {
+      while (row.length < width) row.push("");
+      return row.slice(0, width);
+    }
+
+    let cells = [...row];
+    if (importes && width >= 3 && cells.length === 2) {
+      const [label, val] = cells;
+      if (parseImporte(label) === null && parseImporte(val) !== null) {
+        cells = [label, "", val];
+      }
+    }
+
+    while (cells.length < width) cells.push("");
+    return cells.slice(0, width);
+  });
 }
 
 /** Fila de cabecera anual ("… | 2024 | 2023" o "… | IMPORTE 2024 | …"). */
