@@ -37,6 +37,8 @@ function lineaEsContinuacion(anterior: string, line: string): boolean {
   const t = line.trim();
   if (!p || !t) return false;
   if (prefijoListaIncompleto(p)) return true;
+  // Un encabezado de sección (p. ej. "Identificación") no se fusiona con el párrafo siguiente.
+  if (lineaIniciaUnidad(p) && !prefijoListaIncompleto(p)) return false;
   if (lineaIniciaUnidad(t) && !lineaEsContinuacionForzada(p)) return false;
   if (p.endsWith("-")) return true;
   if (!/[.!?:;]$/.test(p)) return true;

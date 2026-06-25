@@ -45,7 +45,7 @@ const CHAR_MARK: Record<CharDiffSegment["kind"], string> = {
   added: "rounded-sm bg-red-200/90 px-px font-medium text-red-950",
 };
 
-const CELL_BASE = "whitespace-pre-wrap break-words py-1.5 pr-2 text-slate-700";
+const CELL_BASE = "whitespace-pre-wrap break-words py-2 pr-2 text-slate-700";
 
 function CharDiffText({ segments }: { segments: CharDiffSegment[] }) {
   return (
@@ -283,7 +283,7 @@ function FlatCompareContent({
   highlightQuery?: string;
   emphasizeStructural?: boolean;
 }) {
-  // Cada bloque de texto es una fila alineada (prior | current); no subdividir en filas sueltas.
+  // Cada párrafo alineado es una fila (prior | current) con la misma altura en ambos lados.
   const grupos: (
     | { type: "text"; lines: ComparedLine[] }
     | { type: "table"; table: ComparedTable }

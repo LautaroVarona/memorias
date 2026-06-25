@@ -11,7 +11,6 @@ import {
 import { segmentMemoriaContent, type MemoriaSegment } from "./parse-pipe-table";
 import {
   agruparLineasEnParrafos,
-  lineasDeTexto,
   normalizarBloquesComparacion,
 } from "./text-paragraph-group";
 
@@ -102,18 +101,31 @@ function textosEquivalentes(a: string, b: string): boolean {
   return normalizarTextoComparacionInteranual(a) === normalizarTextoComparacionInteranual(b);
 }
 
-/** Agrupa párrafos e ítems de lista; evita tratar cada salto de línea Word como un bloque distinto. */
+/** Agrupa párrafos e ítems de lista; líneas vacías marcan corte de párrafo (como Word). */
 function splitTextBlocks(text: string): string[] {
   const normalized = normalizeTextForDiff(text);
   if (!normalized.trim()) return [];
 
-  const secciones = normalized.split(/\n\n+/).map((s) => s.trim()).filter(Boolean);
-  const fuente = secciones.length > 0 ? secciones : [normalized.trim()];
-
   const blocks: string[] = [];
-  for (const seccion of fuente) {
-    blocks.push(...agruparLineasEnParrafos(lineasDeTexto(seccion)));
+  let chunk: string[] = [];
+
+  for (const raw of normalized.split("\n")) {
+    const line = raw.trim();
+    if (!line) {
+      if (chunk.length > 0) {
+        blocks.push(...agruparLineasEnParrafos(chunk));
+        chunk = [];
+      }
+      continue;
+    }
+    if (line.includes("|")) continue;
+    chunk.push(line);
   }
+
+  if (chunk.length > 0) {
+    blocks.push(...agruparLineasEnParrafos(chunk));
+  }
+
   return normalizarBloquesComparacion(blocks);
 }
 
@@ -138,6 +150,9 @@ function classifyPair(prior: string, current: string): ComparedLine {
   if (p === c || textosEquivalentes(p, c)) {
     return { kind: "unchanged", prior: p, current: c };
   }
+  if (isSoloCambioEsperado(p, c)) {
+    return { kind: "expected", prior: p, current: c };
+  }
   return { kind: "structural", prior: p, current: c };
 }
 
@@ -147,22 +162,43 @@ function appendParrafo(base: string, extra: string): string {
   return `${base}\n\n${extra}`;
 }
 
-/** Fusiona filas consecutivas sin cambio en un único par alineado (evita una línea por fila). */
 function pushComparedLine(result: ComparedBlock[], line: ComparedLine) {
-  const prev = result[result.length - 1];
-  if (
-    line.kind === "unchanged" &&
-    prev?.type === "text" &&
-    prev.line.kind === "unchanged"
-  ) {
-    prev.line = {
-      kind: "unchanged",
-      prior: appendParrafo(prev.line.prior, line.prior),
-      current: appendParrafo(prev.line.current, line.current),
-    };
-    return;
-  }
   result.push({ type: "text", line });
+}
+
+/** Expande una fila con varios párrafos embebidos en filas alineadas 1:1. */
+function expandTextLineToRows(line: ComparedLine): ComparedLine[] {
+  const priorBlocks = splitTextBlocks(line.prior);
+  const currentBlocks = splitTextBlocks(line.current);
+
+  if (priorBlocks.length <= 1 && currentBlocks.length <= 1) {
+    const prior = priorBlocks[0] ?? line.prior.trim();
+    const current = currentBlocks[0] ?? line.current.trim();
+    if (prior === line.prior && current === line.current) return [line];
+    return [{ ...line, prior, current }];
+  }
+
+  const max = Math.max(priorBlocks.length, currentBlocks.length);
+  const rows: ComparedLine[] = [];
+  for (let i = 0; i < max; i++) {
+    const prior = priorBlocks[i] ?? "";
+    const current = currentBlocks[i] ?? "";
+    if (prior && current) {
+      rows.push(classifyPair(prior, current));
+    } else if (prior) {
+      rows.push({ kind: "removed", prior, current: "" });
+    } else if (current) {
+      rows.push({ kind: "added", prior: "", current });
+    }
+  }
+  return rows;
+}
+
+function flattenBlocksForAlignedDisplay(blocks: ComparedBlock[]): ComparedBlock[] {
+  return blocks.flatMap((block) => {
+    if (block.type === "table") return [block];
+    return expandTextLineToRows(block.line).map((line) => ({ type: "text" as const, line }));
+  });
 }
 
 /** Fusiona bloques consecutivos en el lado más largo para alinear memorias con distinta maquetación. */
@@ -297,16 +333,7 @@ function alignSegments(
           );
           result.push({ type: "table", table });
         } else if (pSeg.type === "text" && cSeg.type === "text") {
-          const pNorm = normalizeTextForDiff(pSeg.content);
-          const cNorm = normalizeTextForDiff(cSeg.content);
-          if (textosEquivalentes(pNorm, cNorm)) {
-            result.push({
-              type: "text",
-              line: { kind: "unchanged", prior: pNorm, current: cNorm },
-            });
-          } else {
-            result.push(...pairTextBlocks(splitTextBlocks(pSeg.content), splitTextBlocks(cSeg.content)));
-          }
+          result.push(...pairTextBlocks(splitTextBlocks(pSeg.content), splitTextBlocks(cSeg.content)));
         } else {
           result.push(
             ...pairTextBlocks(
@@ -384,29 +411,33 @@ export function buildContentComparison(priorText: string, currentText: string): 
 
   if (priorSegs.length === 0 && currentSegs.length === 0) return [];
   if (priorSegs.length === 0) {
-    return currentSegs.flatMap((seg): ComparedBlock[] => {
-      if (seg.type === "table") {
-        return [{ type: "table", table: buildTableComparison("", tableSegmentToText(seg)) }];
-      }
-      return splitTextBlocks(seg.content).map((block) => ({
-        type: "text",
-        line: { kind: "added", prior: "", current: block },
-      }));
-    });
+    return flattenBlocksForAlignedDisplay(
+      currentSegs.flatMap((seg): ComparedBlock[] => {
+        if (seg.type === "table") {
+          return [{ type: "table", table: buildTableComparison("", tableSegmentToText(seg)) }];
+        }
+        return splitTextBlocks(seg.content).map((block) => ({
+          type: "text",
+          line: { kind: "added", prior: "", current: block },
+        }));
+      })
+    );
   }
   if (currentSegs.length === 0) {
-    return priorSegs.flatMap((seg): ComparedBlock[] => {
-      if (seg.type === "table") {
-        return [{ type: "table", table: buildTableComparison(tableSegmentToText(seg), "") }];
-      }
-      return splitTextBlocks(seg.content).map((block) => ({
-        type: "text",
-        line: { kind: "removed", prior: block, current: "" },
-      }));
-    });
+    return flattenBlocksForAlignedDisplay(
+      priorSegs.flatMap((seg): ComparedBlock[] => {
+        if (seg.type === "table") {
+          return [{ type: "table", table: buildTableComparison(tableSegmentToText(seg), "") }];
+        }
+        return splitTextBlocks(seg.content).map((block) => ({
+          type: "text",
+          line: { kind: "removed", prior: block, current: "" },
+        }));
+      })
+    );
   }
 
-  return alignSegments(priorSegs, currentSegs);
+  return flattenBlocksForAlignedDisplay(alignSegments(priorSegs, currentSegs));
 }
 
 export function hasContentDiff(priorText: string, currentText: string): boolean {
