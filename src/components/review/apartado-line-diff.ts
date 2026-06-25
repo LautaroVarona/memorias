@@ -101,6 +101,33 @@ function textosEquivalentes(a: string, b: string): boolean {
   return normalizarTextoComparacionInteranual(a) === normalizarTextoComparacionInteranual(b);
 }
 
+/** Descompone bloques (incluso fusionados con \\n\\n) en un párrafo por elemento. */
+function aplanarBloquesAParrafo(blocks: string[]): string[] {
+  return blocks.flatMap((b) => {
+    const partes = splitTextBlocks(b);
+    return partes.length > 0 ? partes : b.trim() ? [b.trim()] : [];
+  });
+}
+
+/** Misma secuencia de párrafos; solo puede variar la maquetación (saltos de línea). */
+function parrafosEquivalentes(a: string, b: string): boolean {
+  const pa = splitTextBlocks(a);
+  const pb = splitTextBlocks(b);
+  if (pa.length === 0 && pb.length === 0) return true;
+  if (pa.length !== pb.length) return false;
+  return pa.every((p, i) => textosEquivalentes(p, pb[i] ?? ""));
+}
+
+/** Texto canónico para mostrar un par equivalente (misma apariencia en ambos lados). */
+function textoDisplayParrafo(a: string, b: string): string {
+  const pa = splitTextBlocks(a);
+  const pb = splitTextBlocks(b);
+  if (pa.length === 1 && pb.length === 1) return pa[0];
+  if (pa.length === 1) return pa[0];
+  if (pb.length === 1) return pb[0];
+  return a.trim();
+}
+
 /** Agrupa párrafos e ítems de lista; líneas vacías marcan corte de párrafo (como Word). */
 function splitTextBlocks(text: string): string[] {
   const normalized = normalizeTextForDiff(text);
@@ -147,8 +174,9 @@ function segmentsToBlocks(segments: MemoriaSegment[]): { key: string; segment: M
 function classifyPair(prior: string, current: string): ComparedLine {
   const p = normalizeTextForDiff(prior);
   const c = normalizeTextForDiff(current);
-  if (p === c || textosEquivalentes(p, c)) {
-    return { kind: "unchanged", prior: p, current: c };
+  if (p === c || parrafosEquivalentes(p, c) || textosEquivalentes(p, c)) {
+    const display = textoDisplayParrafo(p, c);
+    return { kind: "unchanged", prior: display, current: display };
   }
   if (isSoloCambioEsperado(p, c)) {
     return { kind: "expected", prior: p, current: c };
@@ -159,22 +187,25 @@ function classifyPair(prior: string, current: string): ComparedLine {
 function appendParrafo(base: string, extra: string): string {
   if (!base.trim()) return extra;
   if (!extra.trim()) return base;
-  return `${base}\n\n${extra}`;
+  return `${base}\n${extra}`;
 }
 
 function pushComparedLine(result: ComparedBlock[], line: ComparedLine) {
   result.push({ type: "text", line });
 }
 
-/** Expande una fila con varios párrafos embebidos en filas alineadas 1:1. */
+/** Expande una fila en párrafos alineados 1:1 (prior | current). */
 function expandTextLineToRows(line: ComparedLine): ComparedLine[] {
   const priorBlocks = splitTextBlocks(line.prior);
   const currentBlocks = splitTextBlocks(line.current);
 
   if (priorBlocks.length <= 1 && currentBlocks.length <= 1) {
+    if (line.kind === "unchanged") {
+      const display = textoDisplayParrafo(line.prior, line.current);
+      return [{ ...line, prior: display, current: display }];
+    }
     const prior = priorBlocks[0] ?? line.prior.trim();
     const current = currentBlocks[0] ?? line.current.trim();
-    if (prior === line.prior && current === line.current) return [line];
     return [{ ...line, prior, current }];
   }
 
@@ -247,7 +278,9 @@ function equilibrarListasBloques(a: string[], b: string[]): [string[], string[]]
 
 function pairTextBlocks(priorBlocks: string[], currentBlocks: string[]): ComparedBlock[] {
   const [priorEq, currentEq] = equilibrarListasBloques(priorBlocks, currentBlocks);
-  const changes = diffBlocks(priorEq, currentEq);
+  const priorFlat = aplanarBloquesAParrafo(priorEq);
+  const currentFlat = aplanarBloquesAParrafo(currentEq);
+  const changes = diffBlocks(priorFlat, currentFlat);
   const result: ComparedBlock[] = [];
 
   let i = 0;
@@ -272,23 +305,24 @@ function pairTextBlocks(priorBlocks: string[], currentBlocks: string[]): Compare
       i++;
     }
 
-    const mergedMatch =
-      removedBlocks.length > 0 &&
-      addedBlocks.length > 0 &&
-      textosEquivalentes(removedBlocks.join(" "), addedBlocks.join(" "));
-    if (mergedMatch) {
-      pushComparedLine(result, {
-        kind: "unchanged",
-        prior: normalizeTextForDiff(removedBlocks.join("\n\n")),
-        current: normalizeTextForDiff(addedBlocks.join("\n\n")),
-      });
+    const removedFlat = aplanarBloquesAParrafo(removedBlocks);
+    const addedFlat = aplanarBloquesAParrafo(addedBlocks);
+    if (
+      removedFlat.length > 0 &&
+      addedFlat.length > 0 &&
+      removedFlat.length === addedFlat.length &&
+      removedFlat.every((p, idx) => textosEquivalentes(p, addedFlat[idx] ?? ""))
+    ) {
+      for (let k = 0; k < removedFlat.length; k++) {
+        pushComparedLine(result, classifyPair(removedFlat[k], addedFlat[k]));
+      }
       continue;
     }
 
-    const pairs = Math.max(removedBlocks.length, addedBlocks.length);
+    const pairs = Math.max(removedFlat.length, addedFlat.length);
     for (let j = 0; j < pairs; j++) {
-      const prior = removedBlocks[j] ?? "";
-      const current = addedBlocks[j] ?? "";
+      const prior = removedFlat[j] ?? "";
+      const current = addedFlat[j] ?? "";
       if (prior && current) {
         pushComparedLine(result, classifyPair(prior, current));
       } else if (prior) {
