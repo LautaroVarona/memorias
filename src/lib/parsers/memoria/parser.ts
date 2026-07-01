@@ -152,11 +152,6 @@ async function extraerTexto(buffer: Buffer, formato: FormatoMemoria): Promise<{ 
       const cuerpo = doc.getBody()?.trim();
       if (cuerpo) partes.push(cuerpo);
 
-      if (docExtendido.getFooters) {
-        const pies = docExtendido.getFooters()?.trim();
-        if (pies) partes.push(pies);
-      }
-
       const texto = partes.join("\n\n");
       return { texto, paginas: Math.max(1, Math.ceil(texto.length / 3000)) };
     }

@@ -4,6 +4,7 @@ import {
   indiceColumnaEjercicioEstricto,
 } from "@/lib/parsers/memoria/schemas";
 import { compareWithTolerance } from "@/lib/rules/helpers/accounts";
+import { celdaImporteTieneValor } from "@/lib/rules/helpers/tablas-interanual";
 import type { TablaMemoria } from "@/types/domain";
 import { normalizarTextoApartado } from "./text-normalize";
 
@@ -90,10 +91,27 @@ function claveFila(apartado: string | undefined, etiqueta: string): string {
 export function extraerCifrasEjercicio(
   tablas: TablaMemoria[],
   ejercicioObjetivo: number
-): Map<string, { valor: number; filaEtiqueta: string; apartado?: string; tablaTitulo?: string; pagina?: number }> {
+): Map<
+  string,
+  {
+    valor: number | null;
+    tieneValor: boolean;
+    filaEtiqueta: string;
+    apartado?: string;
+    tablaTitulo?: string;
+    pagina?: number;
+  }
+> {
   const map = new Map<
     string,
-    { valor: number; filaEtiqueta: string; apartado?: string; tablaTitulo?: string; pagina?: number }
+    {
+      valor: number | null;
+      tieneValor: boolean;
+      filaEtiqueta: string;
+      apartado?: string;
+      tablaTitulo?: string;
+      pagina?: number;
+    }
   >();
 
   for (const tabla of tablas) {
@@ -106,12 +124,15 @@ export function extraerCifrasEjercicio(
       if (esFilaCabeceraAnual(fila)) continue;
       const etiqueta = normalizarEtiquetaFila(fila[0] ?? "");
       if (!etiqueta || etiqueta.length < 3) continue;
-      const valor = parseImporte(fila[col.indice] ?? "");
-      if (valor === null) continue;
+      const celda = fila[col.indice] ?? "";
+      const valor = parseImporte(celda);
+      const tieneValor = celdaImporteTieneValor(celda);
+      if (!tieneValor) continue;
 
       const clave = claveFila(tabla.apartado, etiqueta);
       map.set(clave, {
         valor,
+        tieneValor,
         filaEtiqueta: fila[0]?.trim() || etiqueta,
         apartado: tabla.apartado,
         tablaTitulo: tabla.titulo,
@@ -149,24 +170,59 @@ export function detectarDescuadresComparativa(
       const etiqueta = normalizarEtiquetaFila(fila[0] ?? "");
       if (!etiqueta || etiqueta.length < 3) continue;
 
-      const valorComparativa = parseImporte(fila[col.indice] ?? "");
-      if (valorComparativa === null) continue;
+      const celdaComparativa = fila[col.indice] ?? "";
+      const valorComparativa = parseImporte(celdaComparativa);
+      const tieneComparativa = celdaImporteTieneValor(celdaComparativa);
 
       const clave = claveFila(tabla.apartado, etiqueta);
       if (vistos.has(clave)) continue;
 
       const ref = referencia.get(clave);
-      if (!ref) continue;
+      if (!ref) {
+        if (tieneComparativa) {
+          vistos.add(clave);
+          descuadres.push({
+            apartado: tabla.apartado,
+            filaEtiqueta: fila[0]?.trim() || etiqueta,
+            ejercicioReferencia: ejercicioAnterior,
+            valorMemoriaAnterior: 0,
+            valorColumnaComparativa: valorComparativa ?? 0,
+            tablaTitulo: tabla.titulo,
+            pagina: tabla.pagina,
+          });
+        }
+        continue;
+      }
 
       vistos.add(clave);
-      if (compareWithTolerance(valorComparativa, ref.valor, tolerancia)) continue;
+
+      if (!tieneComparativa) {
+        descuadres.push({
+          apartado: tabla.apartado ?? ref.apartado,
+          filaEtiqueta: fila[0]?.trim() || ref.filaEtiqueta,
+          ejercicioReferencia: ejercicioAnterior,
+          valorMemoriaAnterior: ref.valor ?? 0,
+          valorColumnaComparativa: 0,
+          tablaTitulo: tabla.titulo || ref.tablaTitulo,
+          pagina: tabla.pagina ?? ref.pagina,
+        });
+        continue;
+      }
+
+      if (
+        ref.valor !== null &&
+        valorComparativa !== null &&
+        compareWithTolerance(valorComparativa, ref.valor, tolerancia)
+      ) {
+        continue;
+      }
 
       descuadres.push({
         apartado: tabla.apartado ?? ref.apartado,
         filaEtiqueta: fila[0]?.trim() || ref.filaEtiqueta,
         ejercicioReferencia: ejercicioAnterior,
-        valorMemoriaAnterior: ref.valor,
-        valorColumnaComparativa: valorComparativa,
+        valorMemoriaAnterior: ref.valor ?? 0,
+        valorColumnaComparativa: valorComparativa ?? 0,
         tablaTitulo: tabla.titulo || ref.tablaTitulo,
         pagina: tabla.pagina ?? ref.pagina,
       });

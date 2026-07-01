@@ -81,6 +81,8 @@ const DESTINATIONS_TO_SKIP = new Set([
   "aftnsep",
   "aftnsepc",
   "fldinst",
+  "field",
+  "fldrslt",
   "pict",
   "object",
   "pnseclvl1",

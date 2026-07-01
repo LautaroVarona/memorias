@@ -1,4 +1,4 @@
-import { tablaEsCualitativa } from "@/lib/parsers/memoria/extractors";
+import { parseImporte, tablaEsCualitativa } from "@/lib/parsers/memoria/extractors";
 import type { TablaMemoria } from "@/types/domain";
 import { normalizarTextoApartado, tituloApartadoSlug } from "./text-normalize";
 
@@ -17,6 +17,15 @@ function celdaTieneContenido(celda: string): boolean {
   if (!t) return false;
   if (/^[-—–]$/.test(t)) return false;
   return /\d/.test(t) || t.length >= 2;
+}
+
+/** Celda de importe con dato (cifra o valor numérico parseable). */
+export function celdaImporteTieneValor(celda: string): boolean {
+  const t = celda.trim();
+  if (!t) return false;
+  if (/^[-—–_=.\s]+$/.test(t)) return false;
+  if (parseImporte(t) !== null) return true;
+  return /\d/.test(t);
 }
 
 function celdaTieneTextoSignificativo(celda: string): boolean {

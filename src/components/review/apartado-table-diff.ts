@@ -1,5 +1,6 @@
 import { parseImporte } from "@/lib/parsers/memoria/extractors";
 import { compareWithTolerance } from "@/lib/rules/helpers/accounts";
+import { celdaImporteTieneValor } from "@/lib/rules/helpers/tablas-interanual";
 import { normalizarTextoApartado } from "@/lib/rules/helpers/text-normalize";
 import type { LineDiffKind } from "./apartado-line-diff";
 import { parseTableRow } from "./parse-pipe-table";
@@ -33,6 +34,7 @@ export function limpiarCeldaTabla(cell: string): string {
     .replace(/\f/g, "")
     .replace(/\u00a0/g, " ")
     .replace(/[ \t]+/g, " ")
+    .replace(/\s+-\s*\d{1,4}\s*-\s*$/g, "")
     .trim();
 }
 
@@ -119,6 +121,11 @@ export function cifrasEquivalentes(a: string, b: string, tolerancia = 0.005): bo
   const pb = parseImporte(limpiarCeldaTabla(b));
   if (pa !== null && pb !== null) return compareWithTolerance(pa, pb, tolerancia);
   return false;
+}
+
+/** Celda con dato en la columna del año compartido (importe o cifra significativa). */
+export function celdaCompartidaTieneValor(cell: string): boolean {
+  return celdaImporteTieneValor(limpiarCeldaTabla(cell));
 }
 
 function yearsInHeader(header: string[]): number[] {
@@ -208,7 +215,10 @@ export function buildTableComparison(priorText: string, currentText: string): Co
     else if (priorSharedCol !== null && currentSharedCol !== null) {
       const pv = prior[priorSharedCol] ?? "";
       const cv = current[currentSharedCol] ?? "";
-      if (pv.trim() && cv.trim() && !cifrasEquivalentes(pv, cv)) kind = "structural";
+      const priorHas = celdaCompartidaTieneValor(pv);
+      const currentHas = celdaCompartidaTieneValor(cv);
+      if (priorHas && currentHas && !cifrasEquivalentes(pv, cv)) kind = "structural";
+      else if (priorHas !== currentHas) kind = "structural";
     }
 
     return { kind, prior: hasPrior ? prior : null, current: hasCurrent ? current : null };

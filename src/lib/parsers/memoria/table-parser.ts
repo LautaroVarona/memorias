@@ -19,7 +19,12 @@ const PATRON_TITULO_CABECERA =
 
 /** Elimina caracteres de control sin colapsar la celda. */
 export function limpiarValorCelda(raw: string): string {
-  return raw.replace(/[\u0000-\u001F\u007F]/g, "").replace(/\s+/g, " ").trim();
+  return raw
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .replace(/\s+/g, " ")
+    // Pie de página A3SOC (- PAGE -) que a veces se cuela tras el último párrafo
+    .replace(/\s+-\s*\d{1,4}\s*-\s*$/g, "")
+    .trim();
 }
 
 /**
