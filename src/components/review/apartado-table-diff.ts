@@ -49,8 +49,24 @@ function parseRowsFromText(text: string): string[][] {
     .map((line) => limpiarCeldaTabla(line))
     .filter((line) => line.includes("|"))
     .map(parseTableRow)
-    .filter((row) => row.length > 0);
+    .filter((row) => row.length > 0)
+    .filter((row) => !esFilaDecorativa(row));
   return normalizarFilasTabla(rows);
+}
+
+function esCeldaDecorativa(cell: string): boolean {
+  const t = limpiarCeldaTabla(cell);
+  if (!t) return true;
+  return /^[-–—_=.\s]+$/.test(t);
+}
+
+/**
+ * El parser de Word a veces deja filas "fantasma" de maquetación (--- | --- | ---).
+ * No aportan datos y provocan saltos/filas extra en la comparativa.
+ */
+function esFilaDecorativa(row: string[]): boolean {
+  if (row.length === 0) return true;
+  return row.every((cell) => esCeldaDecorativa(cell));
 }
 
 /** Cabecera con columnas IMPORTE / año comparativo (3+ columnas). */
@@ -134,7 +150,7 @@ function alignRows(
 
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      const match = priorLabels[i] === currentLabels[j] && priorLabels[i].length >= 3;
+      const match = priorLabels[i] === currentLabels[j] && priorLabels[i].length > 0;
       dp[i][j] = match ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
@@ -144,7 +160,7 @@ function alignRows(
   let j = 0;
 
   while (i < n || j < m) {
-    if (i < n && j < m && priorLabels[i] === currentLabels[j] && priorLabels[i].length >= 3) {
+    if (i < n && j < m && priorLabels[i] === currentLabels[j] && priorLabels[i].length > 0) {
       pairs.push({ prior: priorBody[i], current: currentBody[j] });
       i++;
       j++;
