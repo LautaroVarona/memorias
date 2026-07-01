@@ -91,6 +91,19 @@ function elegirVariantePorEjercicio(a: string, b: string, ejercicio: number): st
   return a.trim().length >= b.trim().length ? a : b;
 }
 
+/** Solo los párrafos narrativos largos con años se deduplican (plantilla 2024 vs 2025). */
+function esBloquePlantillaNarrativa(bloque: string): boolean {
+  const t = bloque.trim();
+  if (t.length < 80) return false;
+  return /\b(19|20)\d{2}\b/.test(t) || /\b\d{1,2}\/\d{1,2}\/(19|20)\d{2}\b/.test(t);
+}
+
+function esLineaPlantillaNarrativa(linea: string): boolean {
+  const t = linea.trim();
+  if (t.length < 80) return false;
+  return /\b(19|20)\d{2}\b/.test(t) || /\b\d{1,2}\/\d{1,2}\/(19|20)\d{2}\b/.test(t);
+}
+
 /**
  * Los .DOC de A3SOC suelen volcar texto duplicado (plantilla del año anterior en el
  * cuerpo + versión actualizada en cabecera o cuadros de texto). Conserva la variante
@@ -112,6 +125,11 @@ export function deduplicarVariantesAnualesTexto(
     const lineasDedup = deduplicarLineasAnuales(lineas, ejercicioAncla, vistos);
     const unido = lineasDedup.join("\n").trim();
     if (!unido) continue;
+
+    if (!esBloquePlantillaNarrativa(unido)) {
+      resultado.push(unido);
+      continue;
+    }
 
     const key = normalizarTextoComparacionInteranual(unido);
     if (!key) {
@@ -147,6 +165,11 @@ function deduplicarLineasAnuales(
 
   for (const linea of lineas) {
     if (!linea.trim()) {
+      resultado.push(linea);
+      continue;
+    }
+
+    if (!esLineaPlantillaNarrativa(linea)) {
       resultado.push(linea);
       continue;
     }

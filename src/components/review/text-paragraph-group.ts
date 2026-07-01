@@ -6,7 +6,7 @@
 const PATRON_ITEM_LISTA = /^(?:[a-z]\)|-\s|•\s|–\s|—\s)/i;
 const PATRON_APARTADO = /^\d{2}\s+[A-ZÁÉÍÓÚÑ]/;
 const PATRON_TITULO_SECCION =
-  /^(?:identificaci[oó]n|objeto\s+social|normas\s+de|pol[ií]tica|criterios|riesgo|nota\s+\d|en todo caso)/i;
+  /^(?:identificaci[oó]n|actividad\s+de\s+la\s+empresa|objeto\s+social|pertenece\s+a\s+un\s+grupo|normas\s+de|pol[ií]tica|criterios|riesgo|nota\s+\d|en todo caso)/i;
 
 function lineaIniciaUnidad(line: string): boolean {
   const t = line.trim();

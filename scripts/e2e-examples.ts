@@ -144,6 +144,12 @@ async function main() {
       "Memoria 2025: párrafo de estimaciones con ejercicio 2025"
     );
     assert(
+      memoriaEnmin2025.apartados
+        .find((a) => a.numero === 1)
+        ?.contenido?.includes("Actividad de la empresa\nLa sociedad tiene como actividad principal"),
+      "Memoria 2025: subtítulo «Actividad de la empresa» antes del párrafo de actividad"
+    );
+    assert(
       memoriaEnmin2024.textoCompleto.includes("ejercicio 2024"),
       "Memoria 2024: párrafo de estimaciones con ejercicio 2024"
     );
