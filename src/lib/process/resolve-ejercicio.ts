@@ -1,4 +1,5 @@
 import type { MemoriaNormalizada } from "@/types/domain";
+import { detectarAnioPortada, ejercicioDesdeNombreArchivo } from "@/lib/parsers/memoria/extractors";
 
 export interface ResolveEjercicioInput {
   libroEjercicio?: number;
@@ -27,6 +28,14 @@ export interface AssignedMemorias {
 }
 
 function memoriaYear(m: MemoriaNormalizada): number | undefined {
+  const fromName = m.metadata.archivo
+    ? ejercicioDesdeNombreArchivo(m.metadata.archivo)
+    : undefined;
+  if (fromName !== undefined && fromName > 0) return fromName;
+
+  const portada = m.textoCompleto ? detectarAnioPortada(m.textoCompleto) : undefined;
+  if (portada !== undefined && portada > 0) return portada;
+
   const y = m.datosClave.ejercicio;
   return y !== undefined && y > 0 ? y : undefined;
 }

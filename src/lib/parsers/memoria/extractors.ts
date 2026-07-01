@@ -28,6 +28,7 @@ import {
   serializarFilasTabla,
 } from "./table-parser";
 import { validarTablaCriticaSiAplica, validarAnclajeTemporal, detectarFusionEnCabecera, indiceColumnaEjercicioEstricto } from "./schemas";
+import { normalizarTextoComparacionInteranual } from "@/lib/rules/helpers/text-normalize";
 import type {
   ImporteVinculadasFila,
   VinculadasCategoria,
@@ -54,6 +55,108 @@ export function ejercicioDesdeNombreArchivo(fileName: string): number | undefine
   const year = parseInt(match[1], 10);
   if (!Number.isFinite(year) || year < 1990 || year > 2099) return undefined;
   return year;
+}
+
+function puntuacionAniosEnTexto(texto: string, ejercicio: number): number {
+  const years = [...texto.matchAll(/\b(19|20)\d{2}\b/g)].map((m) => parseInt(m[0], 10));
+  if (years.includes(ejercicio)) return 3;
+  if (years.includes(ejercicio - 1)) return 1;
+  return 0;
+}
+
+/** Prefiere la variante que cita el ejercicio de la memoria (p. ej. 2025 frente a 2024). */
+function elegirVariantePorEjercicio(a: string, b: string, ejercicio: number): string {
+  const sa = puntuacionAniosEnTexto(a, ejercicio);
+  const sb = puntuacionAniosEnTexto(b, ejercicio);
+  if (sa !== sb) return sa > sb ? a : b;
+  return a.trim().length >= b.trim().length ? a : b;
+}
+
+/**
+ * Los .DOC de A3SOC suelen volcar texto duplicado (plantilla del año anterior en el
+ * cuerpo + versión actualizada en cabecera o cuadros de texto). Conserva la variante
+ * alineada con el ejercicio de la memoria cuando dos líneas son semánticamente iguales
+ * salvo años o cifras.
+ */
+export function deduplicarVariantesAnualesTexto(
+  texto: string,
+  ejercicioAncla?: number
+): string {
+  if (!ejercicioAncla || ejercicioAncla <= 0 || !texto.trim()) return texto;
+
+  const bloques = texto.split(/\n{2,}/);
+  const vistos = new Map<string, string>();
+  const resultado: string[] = [];
+
+  for (const bloque of bloques) {
+    const lineas = bloque.split("\n");
+    const lineasDedup = deduplicarLineasAnuales(lineas, ejercicioAncla, vistos);
+    const unido = lineasDedup.join("\n").trim();
+    if (!unido) continue;
+
+    const key = normalizarTextoComparacionInteranual(unido);
+    if (!key) {
+      resultado.push(unido);
+      continue;
+    }
+
+    const prev = vistos.get(key);
+    if (!prev) {
+      vistos.set(key, unido);
+      resultado.push(unido);
+      continue;
+    }
+
+    const elegido = elegirVariantePorEjercicio(prev, unido, ejercicioAncla);
+    if (elegido !== prev) {
+      const idx = resultado.indexOf(prev);
+      if (idx >= 0) resultado[idx] = elegido;
+      vistos.set(key, elegido);
+    }
+  }
+
+  return resultado.join("\n\n");
+}
+
+function deduplicarLineasAnuales(
+  lineas: string[],
+  ejercicioAncla: number,
+  vistosBloques: Map<string, string>
+): string[] {
+  const resultado: string[] = [];
+  const indicePorSemantica = new Map<string, number>();
+
+  for (const linea of lineas) {
+    if (!linea.trim()) {
+      resultado.push(linea);
+      continue;
+    }
+
+    const key = normalizarTextoComparacionInteranual(linea);
+    if (!key) {
+      resultado.push(linea);
+      continue;
+    }
+
+    const prevIdx = indicePorSemantica.get(key);
+    if (prevIdx === undefined) {
+      indicePorSemantica.set(key, resultado.length);
+      resultado.push(linea);
+      continue;
+    }
+
+    const anterior = resultado[prevIdx];
+    if (anterior === linea) continue;
+
+    const elegido = elegirVariantePorEjercicio(anterior, linea, ejercicioAncla);
+    if (elegido !== anterior) {
+      resultado[prevIdx] = elegido;
+      const prevBloque = vistosBloques.get(key);
+      if (prevBloque === anterior) vistosBloques.set(key, elegido);
+    }
+  }
+
+  return resultado;
 }
 
 export function extraerCifras(texto: string): CifrasMemoria {
@@ -676,7 +779,8 @@ export function extraerDatosClave(
   if (nif) datos.nif = nif[1].toUpperCase();
 
   const ejercicioNombre = fileName ? ejercicioDesdeNombreArchivo(fileName) : undefined;
-  datos.ejercicio = ejercicioAncla ?? ejercicioNombre ?? detectarEjercicio(texto);
+  datos.ejercicio =
+    ejercicioAncla ?? ejercicioNombre ?? detectarAnioPortada(texto) ?? detectarEjercicio(texto);
 
   const cierre = texto.match(/\b(31\/12\/(20\d{2}))\b/);
   if (cierre) {

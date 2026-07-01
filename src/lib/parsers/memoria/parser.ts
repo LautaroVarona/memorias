@@ -4,6 +4,9 @@ import {
   analizarFormal,
   contarPaginasPdf,
   crearBloqueTabla,
+  deduplicarVariantesAnualesTexto,
+  detectarAnioPortada,
+  ejercicioDesdeNombreArchivo,
   extraerApartadosDesdeBloques,
   extraerAniosMencionados,
   extraerCifras,
@@ -126,9 +129,35 @@ async function extraerTexto(buffer: Buffer, formato: FormatoMemoria): Promise<{ 
       const { default: WordExtractor } = await import("word-extractor");
       const extractor = new WordExtractor();
       const doc = await extractor.extract(buffer);
-      // Los encabezados contienen la portada ("MEMORIA ABREVIADA 2025")
-      const cabeceras = doc.getHeaders({ includeFooters: false }) ?? "";
-      const texto = [cabeceras.trim(), doc.getBody()].filter(Boolean).join("\n\n");
+      const partes: string[] = [];
+
+      const cabeceras = doc.getHeaders({ includeFooters: false })?.trim();
+      if (cabeceras) partes.push(cabeceras);
+
+      // A3SOC suele poner portada y párrafos clave en cuadros de texto no incluidos en getBody().
+      const docExtendido = doc as {
+        getTextboxes?: (opts?: {
+          includeHeadersAndFooters?: boolean;
+          includeBody?: boolean;
+        }) => string;
+        getFooters?: () => string;
+      };
+      if (docExtendido.getTextboxes) {
+        const cajas = docExtendido
+          .getTextboxes({ includeHeadersAndFooters: false, includeBody: true })
+          ?.trim();
+        if (cajas) partes.push(cajas);
+      }
+
+      const cuerpo = doc.getBody()?.trim();
+      if (cuerpo) partes.push(cuerpo);
+
+      if (docExtendido.getFooters) {
+        const pies = docExtendido.getFooters()?.trim();
+        if (pies) partes.push(pies);
+      }
+
+      const texto = partes.join("\n\n");
       return { texto, paginas: Math.max(1, Math.ceil(texto.length / 3000)) };
     }
     case "docx": {
@@ -152,7 +181,14 @@ export async function parseMemoria(
 ): Promise<MemoriaNormalizada> {
   const formato = detectarFormatoMemoria(buffer) ?? (tipo === "memoria_pdf" ? "pdf" : "docx");
   const { texto: bruto, paginas } = await extraerTexto(buffer, formato);
-  const texto = normalizarTexto(bruto);
+  const brutoNormalizado = normalizarTexto(bruto);
+
+  const ejercicioPreliminar =
+    ejercicioActual ??
+    ejercicioDesdeNombreArchivo(fileName) ??
+    detectarAnioPortada(brutoNormalizado);
+
+  const texto = deduplicarVariantesAnualesTexto(brutoNormalizado, ejercicioPreliminar);
 
   // Flujo de bloques inline (texto/tabla) en orden de aparición:
   //  - RTF (A3SOC): se reconstruye desde los controles \\trowd/\\cell/\\row/\\lastrow.

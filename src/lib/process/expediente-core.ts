@@ -109,7 +109,10 @@ function mergeArchivoMetadata(
   return JSON.stringify({ ...base, ...patch, clasificacion: "contenido" });
 }
 
-export async function parseSingleArchivo(archivo: ArchivoInput): Promise<ParsedArchivoPayload> {
+export async function parseSingleArchivo(
+  archivo: ArchivoInput,
+  ejercicioAncla?: number
+): Promise<ParsedArchivoPayload> {
   const buffer = archivo.buffer;
   const fileName = archivo.nombre;
 
@@ -136,7 +139,7 @@ export async function parseSingleArchivo(archivo: ArchivoInput): Promise<ParsedA
 
   if (tipo === "memoria_word" || tipo === "memoria_pdf") {
     try {
-      memoria = await parseMemoria(buffer, fileName, tipo);
+      memoria = await parseMemoria(buffer, fileName, tipo, ejercicioAncla);
       metadata = mergeArchivoMetadata(metadata, {
         ejercicio: memoria.datosClave.ejercicio,
         cliente: memoria.datosClave.denominacion,
@@ -320,16 +323,40 @@ export function finalizeExpedienteCore(input: FinalizeInput): ProcessOutput {
 }
 
 export async function processExpedienteCore(input: ProcessInput): Promise<ProcessOutput> {
-  const parsed: ParsedArchivoPayload[] = [];
+  const parsedById = new Map<string, ParsedArchivoPayload>();
+  let ejercicioLibro: number | undefined;
+
   for (const archivo of input.archivos) {
-    parsed.push(await parseSingleArchivo(archivo));
+    if (!archivo.tipo.startsWith("excel")) continue;
+    const item = await parseSingleArchivo(
+      archivo,
+      input.ejercicio > 0 ? input.ejercicio : undefined
+    );
+    parsedById.set(archivo.id, item);
+    const y = item.excel?.libroCierre?.ejercicio;
+    if (y !== undefined && y > 0) ejercicioLibro = y;
   }
+
+  const ejercicioAncla =
+    ejercicioLibro ?? (input.ejercicio > 0 ? input.ejercicio : undefined);
+
+  for (const archivo of input.archivos) {
+    if (parsedById.has(archivo.id)) continue;
+    parsedById.set(archivo.id, await parseSingleArchivo(archivo, ejercicioAncla));
+  }
+
+  const parsed: ParsedArchivoPayload[] = input.archivos.map((a) => parsedById.get(a.id)!);
 
   let priorParsed: ParsedArchivoPayload[] | undefined;
   if (input.priorYear?.archivos.length) {
     priorParsed = [];
     for (const archivo of input.priorYear.archivos) {
-      priorParsed.push(await parseSingleArchivo(archivo));
+      priorParsed.push(
+        await parseSingleArchivo(
+          archivo,
+          input.priorYear.ejercicio > 0 ? input.priorYear.ejercicio : undefined
+        )
+      );
     }
   }
 
