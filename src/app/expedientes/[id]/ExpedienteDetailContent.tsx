@@ -15,6 +15,7 @@ import {
 import { clientLogger } from "@/lib/logger/client";
 import { downloadExcelReport, openHtmlReport } from "@/lib/reports/download";
 import { collectParseErrors } from "@/lib/review/parse-errors";
+import { uploadToExpediente } from "@/lib/upload-client";
 
 const log = clientLogger.child({ module: "expediente-detail" });
 
