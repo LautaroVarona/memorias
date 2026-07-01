@@ -194,7 +194,15 @@ function segmentsToBlocks(segments: MemoriaSegment[]): { key: string; segment: M
 function classifyPair(prior: string, current: string): ComparedLine {
   const p = normalizeTextForDiff(prior).trim();
   const c = normalizeTextForDiff(current).trim();
-  if (p === c || parrafosEquivalentes(p, c) || textosEquivalentes(p, c)) {
+  if (p === c) {
+    return { kind: "unchanged", prior: p, current: c };
+  }
+  // Antes de equivalencias semánticas: si solo cambian años/cifras, mostrar cada lado
+  // con su texto real (no colapsar en "unchanged" vía normalización interanual).
+  if (isSoloCambioEsperado(p, c)) {
+    return { kind: "expected", prior: p, current: c };
+  }
+  if (parrafosEquivalentes(p, c)) {
     const display = elegirTextoDisplay(p, c);
     return { kind: "unchanged", prior: display, current: display };
   }
@@ -215,9 +223,6 @@ function classifyPair(prior: string, current: string): ComparedLine {
   if (bloquesListaEquivalentes(p, c)) {
     const display = elegirTextoDisplay(p, c);
     return { kind: "unchanged", prior: display, current: display };
-  }
-  if (isSoloCambioEsperado(p, c)) {
-    return { kind: "expected", prior: p, current: c };
   }
   return { kind: "structural", prior: p, current: c };
 }
