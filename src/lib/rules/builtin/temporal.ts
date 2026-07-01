@@ -1,5 +1,6 @@
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
 import { withMemoryLocator, withText } from "@/lib/rules/helpers/evidence";
+import { detectarAnioPortada } from "@/lib/parsers/memoria/extractors";
 import type { AnioMencionado } from "@/types/domain";
 import type { RuleDefinition } from "../types";
 
@@ -41,13 +42,31 @@ export const temporalRules: RuleDefinition[] = [
     execute(data) {
       if (!data.memory) return { passed: true, data: { skip: true } };
       const ejercicio = data.metadata.ejercicio;
-      if (
-        data.memory.keyData.ejercicio !== undefined &&
-        data.memory.keyData.ejercicio !== ejercicio
-      ) {
-        return { passed: true, data: { skip: true, reason: "memoria_no_actual" } };
-      }
+      if (!ejercicio || ejercicio <= 0) return { passed: true, data: { skip: true } };
+
+      const anioPortada = detectarAnioPortada(data.memory.fullText);
+      const errorPortada = anioPortada !== undefined && anioPortada !== ejercicio;
+
       const sospechosos = aniosSospechosos(data.memory.years, ejercicio);
+
+      if (errorPortada) {
+        const diagnosis = `ERROR DE REDACCIÓN: La portada o título de la memoria dice ${anioPortada}, pero este expediente corresponde al ejercicio ${ejercicio}. Actualice el año en el documento original.`;
+        return {
+          passed: false,
+          severity: "critical",
+          diagnosis,
+          sugerencia:
+            `Abra el .DOC original y actualice la portada y los párrafos que aún citan ${anioPortada} (título, fechas de cierre y formulación).`,
+          data: {
+            errorPortada: true,
+            anioPortada,
+            ejercicio,
+            sospechosos,
+            docName: data.memory.metadata.archivo,
+          },
+        };
+      }
+
       return {
         passed: sospechosos.length === 0,
         severity: "critical",
@@ -60,17 +79,44 @@ export const temporalRules: RuleDefinition[] = [
       if (outcome.passed) {
         return seniorExplanationPass("Los años mencionados en la memoria son coherentes con el ejercicio.");
       }
+
+      if (outcome.data.errorPortada) {
+        const { anioPortada, ejercicio } = outcome.data as {
+          errorPortada: boolean;
+          anioPortada: number;
+          ejercicio: number;
+        };
+        return seniorExplanation(
+          `ERROR DE REDACCIÓN: La portada o título de la memoria dice ${anioPortada}, pero este expediente corresponde al ejercicio ${ejercicio}.`,
+          `El sistema ha leído correctamente el texto del documento: el año ${anioPortada} figura en la portada. No es un fallo de extracción, sino un arrastre del ejercicio anterior que debe corregirse en el Word original antes del depósito.`,
+          `Actualice el año en el documento original (portada, encabezados y párrafos de cierre) y vuelva a generar la memoria.`
+        );
+      }
+
       const { sospechosos, ejercicio } = outcome.data as { sospechosos: AnioMencionado[]; ejercicio: number };
       const lista = [...new Set(sospechosos.map((s) => s.anio))].join(", ");
       return seniorExplanation(
         `La memoria del ejercicio ${ejercicio} contiene ${sospechosos.length} referencia(s) a ejercicios incompatibles: ${lista}.`,
-        `Es el patrón típico de una memoria construida sobre la del año anterior sin actualizar todos los párrafos, lo que compromete la imagen fiel y delata el arrastre ante el Registro.`,
+        `Es el patrón típico de una memoria construida sobre la del año anterior sin actualizar todos los párrafos. El parser ha extraído esos años tal como aparecen en el documento; revise el texto señalado en las evidencias.`,
         `Localice cada párrafo señalado y actualice el año o reescriba el texto si la circunstancia ya no aplica.`
       );
     },
     evidence(outcome) {
       if (outcome.passed) return [];
       const docName = outcome.data.docName as string | undefined;
+
+      if (outcome.data.errorPortada) {
+        const { anioPortada, ejercicio } = outcome.data as { anioPortada: number; ejercicio: number };
+        return [
+          withMemoryLocator(
+            "Portada / título",
+            `MEMORIA … ${anioPortada} (expediente ${ejercicio})`,
+            { documentName: docName, page: 1 },
+            "high"
+          ),
+        ];
+      }
+
       return ((outcome.data.sospechosos as AnioMencionado[]) ?? [])
         .slice(0, 6)
         .map((s) =>

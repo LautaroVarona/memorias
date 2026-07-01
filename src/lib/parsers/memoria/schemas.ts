@@ -12,6 +12,20 @@ export const PATRON_COLUMNAS_FUSIONADAS = /IMPORTE\s+\d{4}IMPORTE\s+\d{4}/i;
 const PATRON_IMPORTE_ANIO = /^IMPORTE\s+(20\d{2})$/i;
 const PATRON_ANIO_AISLADO = /^(20\d{2})$/;
 
+export const cabeceraComparativaSchema = z.object({
+  ejercicio_actual: z.number().int().min(1990).max(2099),
+  ejercicio_anterior: z.number().int().min(1990).max(2099),
+});
+
+export type CabeceraComparativa = z.infer<typeof cabeceraComparativaSchema>;
+
+export interface ResultadoAnclajeTemporal {
+  ok: boolean;
+  tabla_rota?: boolean;
+  alerta_extraccion?: boolean;
+  error?: string;
+}
+
 export const filaComparativaSchema = z.object({
   etiqueta: z.string().min(1),
   ejercicio_actual: z.number(),
@@ -98,25 +112,73 @@ function filaEsCabeceraAnual(cells: string[]): boolean {
   return /importe\s+20\d{2}/.test(joined) && cells.filter((c) => parseImporte(c) !== null).length === 0;
 }
 
-/**
- * Valida una tabla comparativa cruda contra el ejercicio ancla N.
- * Lanza Error explícito si la estructura está corrupta.
- */
-export function validarTablaComparativaCruda(tabla: TablaCrudaValidacion, ejercicioActual: number): void {
+/** Valida anclaje N / N-1 en cabecera sin lanzar: devuelve flags para la tabla. */
+export function validarAnclajeTemporal(
+  tabla: TablaCrudaValidacion,
+  ejercicioActual: number
+): ResultadoAnclajeTemporal {
   const ejercicioAnterior = ejercicioActual - 1;
 
+  try {
+    cabeceraComparativaSchema.parse({
+      ejercicio_actual: ejercicioActual,
+      ejercicio_anterior: ejercicioAnterior,
+    });
+  } catch {
+    return {
+      ok: false,
+      tabla_rota: true,
+      alerta_extraccion: true,
+      error: "Ejercicio ancla inválido",
+    };
+  }
+
   if (detectarFusionEnCabecera(tabla.cabecera) || detectarFusionEnFilas(tabla.filas)) {
-    throw new Error("Tabla corrupta: Fusión de columnas detectada");
+    return {
+      ok: false,
+      tabla_rota: true,
+      alerta_extraccion: true,
+      error: "Tabla corrupta: Fusión de columnas detectada",
+    };
   }
 
   const colActual = indiceColumnaEjercicioEstricto(tabla.cabecera, ejercicioActual);
   const colAnterior = indiceColumnaEjercicioEstricto(tabla.cabecera, ejercicioAnterior);
 
-  if (colActual === null || colAnterior === null) {
-    throw new Error(
-      `Tabla corrupta: no se encontraron columnas aisladas para ${ejercicioActual} y ${ejercicioAnterior}`
-    );
+  if (colActual === null) {
+    return {
+      ok: false,
+      tabla_rota: true,
+      alerta_extraccion: true,
+      error: `Cabecera sin columna para el ejercicio ${ejercicioActual}`,
+    };
   }
+
+  if (colAnterior === null && tabla.esComparativaAnual) {
+    return {
+      ok: false,
+      tabla_rota: true,
+      alerta_extraccion: true,
+      error: `Cabecera sin columna para el ejercicio ${ejercicioAnterior}`,
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Valida una tabla comparativa cruda contra el ejercicio ancla N.
+ * Lanza Error explícito si la estructura está corrupta.
+ */
+export function validarTablaComparativaCruda(tabla: TablaCrudaValidacion, ejercicioActual: number): void {
+  const anclaje = validarAnclajeTemporal(tabla, ejercicioActual);
+  if (!anclaje.ok) {
+    throw new Error(anclaje.error ?? "Tabla corrupta");
+  }
+
+  const ejercicioAnterior = ejercicioActual - 1;
+  const colActual = indiceColumnaEjercicioEstricto(tabla.cabecera, ejercicioActual)!;
+  const colAnterior = indiceColumnaEjercicioEstricto(tabla.cabecera, ejercicioAnterior)!;
 
   for (const fila of tabla.filas) {
     if (filaEsCabeceraAnual(fila)) continue;

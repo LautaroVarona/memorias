@@ -7,7 +7,39 @@ import type {
   TipoEmpresa,
 } from "@/types/domain";
 import { extraerPropuestaAplicacion, extraerVinculadas } from "@/lib/parsers/memoria/extractors";
+import { validarAnclajeTemporal } from "@/lib/parsers/memoria/schemas";
+import type { TablaMemoria } from "@/types/domain";
 import { mapCalcisReservaTracked } from "@/lib/tracking/excel";
+
+/** Revalida tablas comparativas contra el ejercicio del expediente (anclaje temporal). */
+function anclarTablasAMemoria(tablas: TablaMemoria[], ejercicioExpediente: number): TablaMemoria[] {
+  if (ejercicioExpediente <= 0) return tablas;
+
+  return tablas.map((tabla) => {
+    if (tabla.tabla_rota || !tabla.esComparativaAnual || tabla.esTablaTexto) return tabla;
+
+    const anclaje = validarAnclajeTemporal(
+      {
+        cabecera: tabla.cabecera,
+        filas: tabla.filas,
+        titulo: tabla.titulo,
+        apartado: tabla.apartado,
+        esComparativaAnual: tabla.esComparativaAnual,
+      },
+      ejercicioExpediente
+    );
+
+    if (anclaje.ok) return tabla;
+
+    return {
+      ...tabla,
+      tabla_rota: anclaje.tabla_rota ?? true,
+      alerta_extraccion: anclaje.alerta_extraccion ?? true,
+      errorParseo: anclaje.error ?? tabla.errorParseo,
+      vacia: true,
+    };
+  });
+}
 
 /** Excel → CaseData.excel (solo metadatos numéricos para validación; no alimenta la vista). */
 function mapCalcisFromLibro(libro?: LibroCierre): CalcisExcel | undefined {
@@ -87,12 +119,13 @@ function memoriaToMemoryBlock(
   ejercicioRef: number
 ): CaseData["memory"] {
   const ejercicio = memoria.datosClave?.ejercicio ?? ejercicioRef;
+  const tablasAncladas = anclarTablasAMemoria(memoria.tablas ?? [], ejercicioRef);
 
   // Estructura 100 % Word: apartados, tablas, texto y cifras provienen del parseo de la memoria.
   return {
     sections: memoria.apartados,
 
-    tables: memoria.tablas ?? [],
+    tables: tablasAncladas,
 
     statements: memoria.statements ?? [],
 
@@ -108,7 +141,7 @@ function memoriaToMemoryBlock(
 
     metadata: memoria.metadata,
 
-    propuestaAplicacion: extraerPropuestaAplicacion(memoria.textoCompleto, memoria.tablas ?? [], {
+    propuestaAplicacion: extraerPropuestaAplicacion(memoria.textoCompleto, tablasAncladas, {
 
       documento: "memoria_actual",
 
@@ -116,7 +149,7 @@ function memoriaToMemoryBlock(
 
     }),
 
-    vinculadas: extraerVinculadas(memoria.textoCompleto, memoria.tablas ?? [], {
+    vinculadas: extraerVinculadas(memoria.textoCompleto, tablasAncladas, {
       documento: "memoria_actual",
       ejercicio,
     }),
@@ -216,6 +249,8 @@ export function buildCaseData(input: BuildCaseDataInput): CaseData {
 
       const pyMem = input.priorYear.memoria;
 
+      const pyTablas = anclarTablasAMemoria(pyMem.tablas ?? [], input.priorYear.ejercicio);
+
       data.priorYear.memory = {
 
         sections: pyMem.apartados,
@@ -226,11 +261,11 @@ export function buildCaseData(input: BuildCaseDataInput): CaseData {
 
         keyData: pyMem.datosClave ?? {},
 
-        tables: pyMem.tablas ?? [],
+        tables: pyTablas,
 
         metadata: pyMem.metadata,
 
-        propuestaAplicacion: extraerPropuestaAplicacion(pyMem.textoCompleto, pyMem.tablas ?? [], {
+        propuestaAplicacion: extraerPropuestaAplicacion(pyMem.textoCompleto, pyTablas, {
 
           documento: "memoria_anterior",
 
@@ -238,7 +273,7 @@ export function buildCaseData(input: BuildCaseDataInput): CaseData {
 
         }),
 
-        vinculadas: extraerVinculadas(pyMem.textoCompleto, pyMem.tablas ?? [], {
+        vinculadas: extraerVinculadas(pyMem.textoCompleto, pyTablas, {
           documento: "memoria_anterior",
           ejercicio: input.priorYear.ejercicio,
         }),

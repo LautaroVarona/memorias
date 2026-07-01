@@ -113,6 +113,8 @@ export interface TablaMemoria {
   vacia: boolean;
   /** true si el parser detectó estructura corrupta (columnas fusionadas, etc.) */
   tabla_rota?: boolean;
+  /** true si la cabecera no contiene el ejercicio ancla del expediente */
+  alerta_extraccion?: boolean;
   /** Mensaje de error de parseo de esta tabla */
   errorParseo?: string;
   linea: number;

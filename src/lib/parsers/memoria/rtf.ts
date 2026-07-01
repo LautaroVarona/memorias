@@ -361,6 +361,8 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
   let inTable = false; // dentro de la región de una tabla (entre \trowd y su cierre)
   let inIntbl = false; // el párrafo actual está marcado \intbl
   let pendingClose = false; // \lastrow visto: cerrar la tabla al próximo \row
+  let cellxEnFila = 0; // columnas definidas por \cellx en la fila actual
+  let celdasFusionadasPendientes = 0; // \clmrg: celdas vacías tras el próximo \cell
 
   const limpiarCelda = limpiarValorCelda;
 
@@ -399,13 +401,19 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
   const pushCelda = () => {
     filaActual.push(celdaActual);
     celdaActual = "";
+    while (celdasFusionadasPendientes > 0) {
+      filaActual.push("");
+      celdasFusionadasPendientes--;
+    }
   };
 
   const pushFila = () => {
     if (celdaActual.length > 0 || filaActual.length > 0) pushCelda();
-    if (filaActual.some((c) => limpiarCelda(c).length > 0)) {
-      // Respeta índice de columna: no anexa celdas sueltas a la fila anterior
-      tablaActual.push([...filaActual]);
+    if (cellxEnFila > 0) {
+      while (filaActual.length < cellxEnFila) filaActual.push("");
+    }
+    if (filaActual.length > 0) {
+      tablaActual.push(filaActual.map(limpiarCelda));
     }
     filaActual = [];
     celdaActual = "";
@@ -484,6 +492,7 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
         } else if (word === "trowd") {
           // Inicia tabla solo si no estábamos en una; las re-definiciones por fila
           // (segundo \trowd antes de \row) no deben descartar la fila en curso.
+          cellxEnFila = 0;
           if (!inTable) {
             if (textBuffer.trim()) flushText();
             inTable = true;
@@ -492,7 +501,12 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
             filaActual = [];
             celdaActual = "";
             tablaActual = [];
+            celdasFusionadasPendientes = 0;
           }
+        } else if (word === "cellx" && m[2]) {
+          cellxEnFila++;
+        } else if (word === "clmrg" || word === "clmgf") {
+          celdasFusionadasPendientes++;
         } else if (word === "intbl") {
           inTable = true;
           inIntbl = true;

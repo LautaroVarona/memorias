@@ -27,7 +27,7 @@ import {
   procesarBloqueTabla,
   serializarFilasTabla,
 } from "./table-parser";
-import { validarTablaCriticaSiAplica, detectarFusionEnCabecera, indiceColumnaEjercicioEstricto } from "./schemas";
+import { validarTablaCriticaSiAplica, validarAnclajeTemporal, detectarFusionEnCabecera, indiceColumnaEjercicioEstricto } from "./schemas";
 import type {
   ImporteVinculadasFila,
   VinculadasCategoria,
@@ -491,21 +491,38 @@ export function extraerTablasDesdeBloques(
     };
 
     if (ejercicioActual !== undefined && bloque.esComparativaAnual && !bloque.esTablaTexto) {
-      try {
-        validarTablaCriticaSiAplica(
-          {
-            cabecera,
-            filas: datos,
-            titulo: tituloPrevio,
-            apartado: apartadoActual,
-            esComparativaAnual: bloque.esComparativaAnual,
-          },
-          ejercicioActual
-        );
-      } catch (err) {
-        tabla.tabla_rota = true;
-        tabla.errorParseo = err instanceof Error ? err.message : "Tabla corrupta";
+      const anclaje = validarAnclajeTemporal(
+        {
+          cabecera,
+          filas: datos,
+          titulo: tituloPrevio,
+          apartado: apartadoActual,
+          esComparativaAnual: bloque.esComparativaAnual,
+        },
+        ejercicioActual
+      );
+      if (!anclaje.ok) {
+        tabla.tabla_rota = anclaje.tabla_rota ?? true;
+        tabla.alerta_extraccion = anclaje.alerta_extraccion ?? true;
+        tabla.errorParseo = anclaje.error;
         tabla.vacia = true;
+      } else {
+        try {
+          validarTablaCriticaSiAplica(
+            {
+              cabecera,
+              filas: datos,
+              titulo: tituloPrevio,
+              apartado: apartadoActual,
+              esComparativaAnual: bloque.esComparativaAnual,
+            },
+            ejercicioActual
+          );
+        } catch (err) {
+          tabla.tabla_rota = true;
+          tabla.errorParseo = err instanceof Error ? err.message : "Tabla corrupta";
+          tabla.vacia = true;
+        }
       }
     }
 
@@ -600,6 +617,14 @@ const MESES: Record<string, number> = {
   enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
   julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
 };
+
+export function detectarAnioPortada(texto: string): number | undefined {
+  const portada = texto.slice(0, 4000);
+  const titulo = portada.match(/MEMORIA\s+(?:ABREVIADA|PYMES?|NORMAL)?\s*(\d{4})/i);
+  if (!titulo) return undefined;
+  const year = parseInt(titulo[1], 10);
+  return Number.isFinite(year) && year >= 1990 && year <= 2099 ? year : undefined;
+}
 
 function detectarEjercicio(texto: string): number | undefined {
   const signals: number[] = [];
@@ -1142,33 +1167,30 @@ function columnaPorEjercicio(cabecera: string[], ejercicio: number): number | un
   return idx ?? undefined;
 }
 
-/** Resuelve columnas comparativas por año de cabecera (IMPORTE 2025 / IMPORTE 2024). */
+/** Resuelve columnas comparativas ancladas al ejercicio del expediente (sin inferir años por defecto). */
 function columnasComparativasPorEjercicio(
   cabecera: string[],
   ejercicioMemoria?: number
-): { actual: number; anterior?: number } {
-  const anioCols: { idx: number; year: number }[] = [];
-  for (let i = 1; i < cabecera.length; i++) {
-    const m = cabecera[i].match(/(?:IMPORTE\s+)?(20\d{2})/i);
-    if (m) anioCols.push({ idx: i, year: parseInt(m[1], 10) });
-  }
-
-  if (ejercicioMemoria !== undefined && anioCols.length > 0) {
-    const actual =
-      columnaPorEjercicio(cabecera, ejercicioMemoria) ??
-      [...anioCols].sort((a, b) => b.year - a.year)[0]?.idx;
-    const anterior =
-      columnaPorEjercicio(cabecera, ejercicioMemoria - 1) ??
-      anioCols.find((c) => c.year === ejercicioMemoria - 1)?.idx;
-    if (actual !== undefined) return { actual, anterior };
-  }
-
-  if (anioCols.length > 0) {
+): { actual?: number; anterior?: number; anclajeRoto?: boolean } {
+  if (ejercicioMemoria === undefined) {
+    const anioCols: { idx: number; year: number }[] = [];
+    for (let i = 1; i < cabecera.length; i++) {
+      const m = cabecera[i].match(/(?:IMPORTE\s+)?(20\d{2})/i);
+      if (m) anioCols.push({ idx: i, year: parseInt(m[1], 10) });
+    }
+    if (anioCols.length === 0) return { anclajeRoto: true };
     const sorted = [...anioCols].sort((a, b) => b.year - a.year);
     return { actual: sorted[0].idx, anterior: sorted[1]?.idx };
   }
 
-  return { actual: 1, anterior: cabecera.length > 2 ? 2 : undefined };
+  if (detectarFusionEnCabecera(cabecera)) return { anclajeRoto: true };
+
+  const actual = columnaPorEjercicio(cabecera, ejercicioMemoria);
+  const anterior = columnaPorEjercicio(cabecera, ejercicioMemoria - 1);
+
+  if (actual === undefined) return { anclajeRoto: true };
+
+  return { actual, anterior };
 }
 
 function columnasEjercicioVinculadas(cabecera: string[], ejercicioMemoria?: number): { actual: number; anterior?: number } {
@@ -1219,10 +1241,11 @@ function extraerCifrasVinculadasDeTablas(
 
     const nombreTabla = nombreTablaVinculadas(tabla);
     const apartadoRef = tabla.apartado ?? "09";
-    const { actual: colActual, anterior: colAnterior } = columnasEjercicioVinculadas(
+    const { actual: colActual, anterior: colAnterior, anclajeRoto } = columnasEjercicioVinculadas(
       tabla.cabecera,
       ejercicioMemoria
     );
+    if (anclajeRoto || colActual === undefined) continue;
 
     for (const fila of tabla.filas) {
       const nombreFilaLimpio = normalizarDescripcionVinculadas(fila[0] ?? "");

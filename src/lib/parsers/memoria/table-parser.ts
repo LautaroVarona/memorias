@@ -183,20 +183,20 @@ export function detectarSubconcepto(celdaRaw: string): { text: string; is_subcon
   return { text: limpiarValorCelda(celdaRaw), is_subconcept: false };
 }
 
-/** Alinea todas las filas al ancho de la cabecera sin colapsar celdas vacías. */
+/** Alinea todas las filas al ancho de la cabecera sin colapsar celdas vacías internas. */
 export function normalizarAnchoFilas(rawFilas: string[][]): string[][] {
   if (rawFilas.length === 0) return [];
   const ancho = Math.max(...rawFilas.map((f) => f.length));
-  let normalizadas = rawFilas.map((fila) => {
-    const cells = [...fila];
-    while (cells.length < ancho) cells.push("");
-    return cells.slice(0, ancho).map(limpiarValorCelda);
-  });
+  const normalizadas = rawFilas.map((fila) => alinearFilaAlAnchoCabecera(fila, ancho));
 
+  // Solo recorta columnas vacías al final si TODAS las filas las tienen vacías
+  // (no elimina columnas intermedias ni la primera columna vacía de etiqueta).
   while ((normalizadas[0]?.length ?? 0) > 1) {
     const last = normalizadas[0].length - 1;
     if (normalizadas.every((f) => !(f[last] ?? "").trim())) {
-      normalizadas = normalizadas.map((f) => f.slice(0, last));
+      normalizadas.forEach((f, i) => {
+        normalizadas[i] = f.slice(0, last);
+      });
     } else {
       break;
     }

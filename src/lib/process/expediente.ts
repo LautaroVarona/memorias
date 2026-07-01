@@ -137,7 +137,14 @@ export async function processExpediente(expedienteId: string): Promise<{
 
     if (tipo === "memoria_word" || tipo === "memoria_pdf") {
       try {
-        const parsedMemoria = await parseMemoria(buffer, fileName, tipo);
+        const ejercicioAncla =
+          libroCierre?.ejercicio && libroCierre.ejercicio > 0
+            ? libroCierre.ejercicio
+            : expediente.ejercicio > 0
+              ? expediente.ejercicio
+              : undefined;
+
+        const parsedMemoria = await parseMemoria(buffer, fileName, tipo, ejercicioAncla);
         memorias.push(parsedMemoria);
         fileLog.info("memoria parseada", {
           tipo,
@@ -214,7 +221,12 @@ export async function processExpediente(expedienteId: string): Promise<{
           if (parsed.balance) antBalance = parsed.balance;
         }
         if (archivo.tipo === "memoria_word" || archivo.tipo === "memoria_pdf") {
-          antMemoria = await parseMemoria(buffer, archivo.nombre, archivo.tipo);
+          antMemoria = await parseMemoria(
+            buffer,
+            archivo.nombre,
+            archivo.tipo,
+            ant.ejercicio > 0 ? ant.ejercicio : undefined
+          );
         }
       }
       priorYear = {
