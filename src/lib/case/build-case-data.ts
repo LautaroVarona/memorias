@@ -228,6 +228,8 @@ export function buildCaseData(input: BuildCaseDataInput): CaseData {
 
         tables: pyMem.tablas ?? [],
 
+        metadata: pyMem.metadata,
+
         propuestaAplicacion: extraerPropuestaAplicacion(pyMem.textoCompleto, pyMem.tablas ?? [], {
 
           documento: "memoria_anterior",

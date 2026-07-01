@@ -141,6 +141,9 @@ export async function parseSingleArchivo(archivo: ArchivoInput): Promise<ParsedA
         ejercicio: memoria.datosClave.ejercicio,
         cliente: memoria.datosClave.denominacion,
         formato: memoria.metadata.formato,
+        ...(memoria.metadata.erroresParseo?.length
+          ? { erroresParseo: memoria.metadata.erroresParseo }
+          : {}),
       });
     } catch (err) {
       // Evita que una memoria dañada/incompatible tumbe toda la revisión.

@@ -1,4 +1,8 @@
 import { parseImporte } from "@/lib/parsers/memoria/extractors";
+import {
+  detectarFusionEnCabecera,
+  indiceColumnaEjercicioEstricto,
+} from "@/lib/parsers/memoria/schemas";
 import { compareWithTolerance } from "@/lib/rules/helpers/accounts";
 import type { TablaMemoria } from "@/types/domain";
 import { normalizarTextoApartado } from "./text-normalize";
@@ -11,6 +15,13 @@ export interface DescuadreComparativa {
   valorColumnaComparativa: number;
   tablaTitulo?: string;
   pagina?: number;
+}
+
+export interface ResultadoColumnaEjercicio {
+  indice: number | null;
+  tabla_rota?: boolean;
+  vacia?: boolean;
+  error?: string;
 }
 
 function normalizarEtiquetaFila(label: string): string {
@@ -29,13 +40,42 @@ function esFilaCabeceraAnual(cells: string[]): boolean {
   return /^movimientos\s/.test(label) && /importe\s+20\d{2}/.test(joined);
 }
 
-/** Localiza la columna cuyo encabezado referencia un ejercicio (p. ej. «importe 2024»). */
-export function encontrarColumnaEjercicio(cabecera: string[], ejercicio: number): number | null {
-  const y = String(ejercicio);
-  for (let i = 0; i < cabecera.length; i++) {
-    if (cabecera[i].toLowerCase().includes(y)) return i;
+/**
+ * Localiza la columna cuyo encabezado referencia un ejercicio (p. ej. «IMPORTE 2024»).
+ * Ultra estricta: rechaza cabeceras aplanadas o fusionadas.
+ */
+export function encontrarColumnaEjercicio(
+  cabecera: string[],
+  ejercicio: number
+): ResultadoColumnaEjercicio {
+  const columnasConTexto = cabecera.filter((c) => c.trim().length > 0);
+
+  if (columnasConTexto.length < 2) {
+    return {
+      indice: null,
+      vacia: true,
+      error: "Cabecera sin columnas de datos",
+    };
   }
-  return null;
+
+  if (detectarFusionEnCabecera(cabecera)) {
+    return {
+      indice: null,
+      tabla_rota: true,
+      error: "Fusión de columnas en cabecera",
+    };
+  }
+
+  const idx = indiceColumnaEjercicioEstricto(cabecera, ejercicio);
+  if (idx === null) {
+    return {
+      indice: null,
+      tabla_rota: true,
+      error: `Columna IMPORTE ${ejercicio} no aislada en cabecera`,
+    };
+  }
+
+  return { indice: idx };
 }
 
 function claveFila(apartado: string | undefined, etiqueta: string): string {
@@ -57,14 +97,16 @@ export function extraerCifrasEjercicio(
   >();
 
   for (const tabla of tablas) {
-    const colIdx = encontrarColumnaEjercicio(tabla.cabecera, ejercicioObjetivo);
-    if (colIdx === null) continue;
+    if (tabla.tabla_rota) continue;
+
+    const col = encontrarColumnaEjercicio(tabla.cabecera, ejercicioObjetivo);
+    if (col.indice === null) continue;
 
     for (const fila of tabla.filas) {
       if (esFilaCabeceraAnual(fila)) continue;
       const etiqueta = normalizarEtiquetaFila(fila[0] ?? "");
       if (!etiqueta || etiqueta.length < 3) continue;
-      const valor = parseImporte(fila[colIdx] ?? "");
+      const valor = parseImporte(fila[col.indice] ?? "");
       if (valor === null) continue;
 
       const clave = claveFila(tabla.apartado, etiqueta);
@@ -97,15 +139,17 @@ export function detectarDescuadresComparativa(
   const vistos = new Set<string>();
 
   for (const tabla of tablasActual) {
-    const colIdx = encontrarColumnaEjercicio(tabla.cabecera, ejercicioAnterior);
-    if (colIdx === null) continue;
+    if (tabla.tabla_rota) continue;
+
+    const col = encontrarColumnaEjercicio(tabla.cabecera, ejercicioAnterior);
+    if (col.indice === null) continue;
 
     for (const fila of tabla.filas) {
       if (esFilaCabeceraAnual(fila)) continue;
       const etiqueta = normalizarEtiquetaFila(fila[0] ?? "");
       if (!etiqueta || etiqueta.length < 3) continue;
 
-      const valorComparativa = parseImporte(fila[colIdx] ?? "");
+      const valorComparativa = parseImporte(fila[col.indice] ?? "");
       if (valorComparativa === null) continue;
 
       const clave = claveFila(tabla.apartado, etiqueta);

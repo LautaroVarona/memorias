@@ -11,6 +11,7 @@ import {
   filasTablaListaAVertical,
   limpiarValorCelda,
   normalizarAnchoFilas,
+  alinearFilaAlAnchoCabecera,
 } from "./table-parser";
 
 /** Propiedades de fila/celda RTF: no aportan texto visible. */
@@ -379,7 +380,9 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
       const limpia = tablaActual
         .map((fila) => fila.map(limpiarCelda))
         .filter((fila) => fila.some((c) => c.length > 0));
-      const normalizada = normalizarAnchoFilas(limpia);
+      const anchoCabecera = limpia.length > 0 ? Math.max(...limpia.map((f) => f.length)) : 0;
+      const conAncho = limpia.map((fila) => alinearFilaAlAnchoCabecera(fila, anchoCabecera));
+      const normalizada = normalizarAnchoFilas(conAncho);
       if (normalizada.length > 0) {
         if (esTablaListaPseudo(normalizada)) {
           textBuffer += filasTablaListaAVertical(normalizada);
@@ -400,7 +403,10 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
 
   const pushFila = () => {
     if (celdaActual.length > 0 || filaActual.length > 0) pushCelda();
-    if (filaActual.some((c) => limpiarCelda(c).length > 0)) tablaActual.push([...filaActual]);
+    if (filaActual.some((c) => limpiarCelda(c).length > 0)) {
+      // Respeta índice de columna: no anexa celdas sueltas a la fila anterior
+      tablaActual.push([...filaActual]);
+    }
     filaActual = [];
     celdaActual = "";
   };

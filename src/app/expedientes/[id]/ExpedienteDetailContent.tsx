@@ -14,7 +14,7 @@ import {
 } from "@/lib/expediente-client";
 import { clientLogger } from "@/lib/logger/client";
 import { downloadExcelReport, openHtmlReport } from "@/lib/reports/download";
-import { uploadToExpediente } from "@/lib/upload-client";
+import { collectParseErrors } from "@/lib/review/parse-errors";
 
 const log = clientLogger.child({ module: "expediente-detail" });
 
@@ -157,6 +157,9 @@ export function ExpedienteDetailContent() {
   const ejercicioLabel =
     ejercicioResuelto > 0 ? `Ejercicio ${ejercicioResuelto}` : "Ejercicio pendiente";
 
+  const parseErrors = collectParseErrors(data.caseData, data.archivos);
+  const parseErrorCount = parseErrors.length;
+
   return (
     <div className="mx-auto w-full max-w-[min(100%,96rem)] space-y-8 px-2 pb-12 sm:px-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -175,6 +178,21 @@ export function ExpedienteDetailContent() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/expedientes/${id}/errors`}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+              parseErrorCount > 0
+                ? "border-red-300 bg-red-50 text-red-800 hover:bg-red-100"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            Errores
+            {parseErrorCount > 0 && (
+              <span className="rounded-full bg-red-600 px-1.5 py-px text-[10px] font-semibold leading-none text-white">
+                {parseErrorCount}
+              </span>
+            )}
+          </Link>
           <Link
             href={`/expedientes/${id}/rules`}
             className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"

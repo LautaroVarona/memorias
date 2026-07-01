@@ -237,8 +237,18 @@ export function procesarBloqueTabla(rawFilas: string[][]): {
 }
 
 /**
- * Intenta anexar celdas sueltas a la fila anterior (RTF/word parten una fila lógica
- * en varias líneas). Preserva celdas vacías: no filtra "" al anexar.
+ * Alinea una fila al ancho de la cabecera rellenando con celdas vacías al final.
+ * No concatena texto a la fila anterior (evita fusionar descripción con importes).
+ */
+export function alinearFilaAlAnchoCabecera(cells: string[], anchoCabecera: number): string[] {
+  if (anchoCabecera <= 0) return cells.map(limpiarValorCelda);
+  const aligned = cells.map(limpiarValorCelda).slice(0, anchoCabecera);
+  while (aligned.length < anchoCabecera) aligned.push("");
+  return aligned;
+}
+
+/**
+ * @deprecated Usar alinearFilaAlAnchoCabecera. Conservado para compatibilidad; ya no anexa celdas.
  */
 export function intentarAnexarCeldasParciales(
   cells: string[],
@@ -248,16 +258,8 @@ export function intentarAnexarCeldasParciales(
   const anchoCabecera = tabla[0]?.length ?? 0;
   if (anchoCabecera === 0) return false;
 
-  const filaAnterior = tabla[tabla.length - 1];
-  if (filaAnterior.length >= anchoCabecera) return false;
-
-  if (cells.length <= 2 || filaAnterior.length + cells.length <= anchoCabecera + 1) {
-    filaAnterior.push(...cells);
-    while (filaAnterior.length > anchoCabecera) {
-      // exceso: devolver false y deshacer — caso patológico
-      filaAnterior.pop();
-      return false;
-    }
+  if (cells.length < anchoCabecera) {
+    tabla.push(alinearFilaAlAnchoCabecera(cells, anchoCabecera));
     return true;
   }
   return false;

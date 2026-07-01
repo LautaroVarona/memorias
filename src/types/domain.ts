@@ -111,6 +111,10 @@ export interface TablaMemoria {
   esTablaTexto?: boolean;
   /** true si las celdas de datos están todas vacías */
   vacia: boolean;
+  /** true si el parser detectó estructura corrupta (columnas fusionadas, etc.) */
+  tabla_rota?: boolean;
+  /** Mensaje de error de parseo de esta tabla */
+  errorParseo?: string;
   linea: number;
   pagina?: number;
 }
@@ -120,6 +124,8 @@ export interface AnioMencionado {
   contexto: string;
   /** true si parece referencia normativa (Ley 16/2012, RD, artículo...) */
   esReferenciaLegal: boolean;
+  /** true si el año no corresponde a N ni N-1 del ejercicio ancla */
+  fueraDeContexto?: boolean;
   linea?: number;
   pagina?: number;
 }
@@ -175,6 +181,7 @@ export interface MemoriaNormalizada {
     paginas: number;
     archivo: string;
     formato?: string;
+    erroresParseo?: string[];
   };
 }
 

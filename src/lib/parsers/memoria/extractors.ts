@@ -21,12 +21,13 @@ import {
   esLineaTabla,
   esTablaListaPseudo,
   filasTablaListaAVertical,
-  intentarAnexarCeldasParciales,
+  alinearFilaAlAnchoCabecera,
   limpiarValorCelda,
   parsearLineaTabla,
   procesarBloqueTabla,
   serializarFilasTabla,
 } from "./table-parser";
+import { validarTablaCriticaSiAplica, detectarFusionEnCabecera, indiceColumnaEjercicioEstricto } from "./schemas";
 import type {
   ImporteVinculadasFila,
   VinculadasCategoria,
@@ -306,8 +307,14 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
 
       if (tabla.length > 0 && debeIniciarNuevaTabla(cells, tabla)) {
         flushTabla();
-      } else if (tabla.length > 0 && intentarAnexarCeldasParciales(cells, tabla)) {
-        continue;
+      }
+
+      if (tabla.length > 0) {
+        const ancho = tabla[0].length;
+        if (cells.length < ancho) {
+          tabla.push(alinearFilaAlAnchoCabecera(cells, ancho));
+          continue;
+        }
       }
 
       tabla.push(cells);
@@ -438,7 +445,8 @@ export function extraerApartadosDesdeBloques(bloques: MemoriaBloque[]): Apartado
 
 export function extraerTablasDesdeBloques(
   bloques: MemoriaBloque[],
-  textoCompletoFallback: string
+  textoCompletoFallback: string,
+  ejercicioActual?: number
 ): TablaMemoria[] {
   const tablas: TablaMemoria[] = [];
   let apartadoActual: string | undefined;
@@ -468,7 +476,8 @@ export function extraerTablasDesdeBloques(
     const datos = celdas.length > 1 ? celdas.slice(1) : [];
     const filasDetalle = bloque.rows.length > 1 ? bloque.rows.slice(1) : [];
     const vacia = tablaEstaVacia(cabecera, datos, bloque.esTablaTexto);
-    tablas.push({
+
+    const tabla: TablaMemoria = {
       apartado: apartadoActual,
       titulo: tituloPrevio,
       cabecera,
@@ -479,7 +488,28 @@ export function extraerTablasDesdeBloques(
       vacia,
       linea,
       pagina: lineaToPagina(textoCompletoFallback, linea),
-    });
+    };
+
+    if (ejercicioActual !== undefined && bloque.esComparativaAnual && !bloque.esTablaTexto) {
+      try {
+        validarTablaCriticaSiAplica(
+          {
+            cabecera,
+            filas: datos,
+            titulo: tituloPrevio,
+            apartado: apartadoActual,
+            esComparativaAnual: bloque.esComparativaAnual,
+          },
+          ejercicioActual
+        );
+      } catch (err) {
+        tabla.tabla_rota = true;
+        tabla.errorParseo = err instanceof Error ? err.message : "Tabla corrupta";
+        tabla.vacia = true;
+      }
+    }
+
+    tablas.push(tabla);
     linea += celdas.length;
   }
 
@@ -562,8 +592,8 @@ function tablaEstaVacia(cabecera: string[], datos: string[][], esTablaTexto?: bo
   return dataCells.every((c) => !celdaTieneContenido(c));
 }
 
-export function extraerTablas(texto: string): TablaMemoria[] {
-  return extraerTablasDesdeBloques(segmentarBloquesDeTexto(texto), texto);
+export function extraerTablas(texto: string, ejercicioActual?: number): TablaMemoria[] {
+  return extraerTablasDesdeBloques(segmentarBloquesDeTexto(texto), texto, ejercicioActual);
 }
 
 const MESES: Record<string, number> = {
@@ -605,7 +635,11 @@ function detectarTipoMemoria(texto: string, numApartados: number): DatosClaveMem
   return "normal";
 }
 
-export function extraerDatosClave(texto: string, fileName?: string): DatosClaveMemoria {
+export function extraerDatosClave(
+  texto: string,
+  fileName?: string,
+  ejercicioAncla?: number
+): DatosClaveMemoria {
   const datos: DatosClaveMemoria = {};
 
   const denominacion = texto.match(/La empresa\s+(.{3,80}?)\s+se constituyó/i);
@@ -617,17 +651,35 @@ export function extraerDatosClave(texto: string, fileName?: string): DatosClaveM
   if (nif) datos.nif = nif[1].toUpperCase();
 
   const ejercicioNombre = fileName ? ejercicioDesdeNombreArchivo(fileName) : undefined;
-  datos.ejercicio = ejercicioNombre ?? detectarEjercicio(texto);
+  datos.ejercicio = ejercicioAncla ?? ejercicioNombre ?? detectarEjercicio(texto);
 
-  const cierre = texto.match(/\b(31\/12\/20\d{2})\b/);
-  if (cierre) datos.fechaCierre = cierre[1];
+  const cierre = texto.match(/\b(31\/12\/(20\d{2}))\b/);
+  if (cierre) {
+    const anioCierre = parseInt(cierre[2], 10);
+    if (
+      datos.ejercicio === undefined ||
+      anioCierre === datos.ejercicio ||
+      anioCierre === datos.ejercicio - 1
+    ) {
+      datos.fechaCierre = cierre[1];
+    }
+  }
 
   const impuesto = texto.match(
     /impuesto corriente asciende a\s+(-?[\d.,]+)(?:\s*\((-?[\d.,]+)\s+en\s+(\d{4})\))?/i
   );
   if (impuesto) {
     datos.impuestoCorriente = parseImporte(impuesto[1]) ?? undefined;
-    if (impuesto[2]) datos.impuestoCorrienteAnterior = parseImporte(impuesto[2]) ?? undefined;
+    if (impuesto[2] && impuesto[3]) {
+      const anioImp = parseInt(impuesto[3], 10);
+      if (
+        datos.ejercicio === undefined ||
+        anioImp === datos.ejercicio ||
+        anioImp === datos.ejercicio - 1
+      ) {
+        datos.impuestoCorrienteAnterior = parseImporte(impuesto[2]) ?? undefined;
+      }
+    }
   }
 
   const empleo = texto.match(/TOTAL EMPLEO MEDIO\s*\|\s*([\d.,]+)\s*(?:\|\s*([\d.,]+))?/i);
@@ -654,8 +706,13 @@ export function extraerDatosClave(texto: string, fileName?: string): DatosClaveM
     /En\s+.{2,40}?,\s*a\s+(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4}),?\s+quedan formuladas/i
   );
   if (formulacion) {
-    const mes = MESES[formulacion[2].toLowerCase()] ?? 0;
-    datos.fechaFormulacion = `${formulacion[1].padStart(2, "0")}/${String(mes).padStart(2, "0")}/${formulacion[3]}`;
+    const anioForm = parseInt(formulacion[3], 10);
+    const ej = datos.ejercicio;
+    const anioValido = ej === undefined || anioForm === ej || anioForm === ej + 1;
+    if (anioValido) {
+      const mes = MESES[formulacion[2].toLowerCase()] ?? 0;
+      datos.fechaFormulacion = `${formulacion[1].padStart(2, "0")}/${String(mes).padStart(2, "0")}/${formulacion[3]}`;
+    }
   }
 
   const firmante = texto.match(/([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{4,60})\s+con\s+N\.?I\.?F\.?/);
@@ -670,7 +727,7 @@ export function extraerDatosClave(texto: string, fileName?: string): DatosClaveM
 const CONTEXTO_LEGAL =
   /(ley|real decreto|r\.?d\.?|d\.?a\.?|art[íi]culo|art\.|disposici[óo]n|c[óo]digo|reglamento|orden|normativa)/i;
 
-export function extraerAniosMencionados(texto: string): AnioMencionado[] {
+export function extraerAniosMencionados(texto: string, ejercicioAncla?: number): AnioMencionado[] {
   const resultado: AnioMencionado[] = [];
   const regex = /\b(19\d{2}|20\d{2})\b/g;
   let m: RegExpExecArray | null;
@@ -689,10 +746,17 @@ export function extraerAniosMencionados(texto: string): AnioMencionado[] {
     const contextoCorto = texto.slice(Math.max(0, m.index - 30), m.index + 10);
     const esReferenciaLegal = /\d{1,3}\/$/.test(antes) || CONTEXTO_LEGAL.test(contextoCorto);
 
+    const fueraDeContexto =
+      ejercicioAncla !== undefined &&
+      !esReferenciaLegal &&
+      anio !== ejercicioAncla &&
+      anio !== ejercicioAncla - 1;
+
     resultado.push({
       anio,
       contexto,
       esReferenciaLegal,
+      fueraDeContexto: fueraDeContexto || undefined,
       linea,
       pagina: lineaToPagina(texto, linea),
     });
@@ -1028,7 +1092,7 @@ function nombreTablaVinculadas(tabla: TablaMemoria): string {
 }
 
 function tablaEsVinculadas(tabla: TablaMemoria): boolean {
-  if (tabla.vacia) return false;
+  if (tabla.vacia || tabla.tabla_rota) return false;
   const cab0 = normalizarEtiquetaFila(tabla.cabecera[0] ?? "");
   if (!PATRON_CABECERA_DESCRIPCION.test(cab0)) return false;
   return tabla.cabecera.slice(1).some((c) => PATRON_COL_VINCULADAS.test(c));
@@ -1073,11 +1137,9 @@ function localizarTablasVinculadas(texto: string, tablas: TablaMemoria[]): Tabla
 }
 
 function columnaPorEjercicio(cabecera: string[], ejercicio: number): number | undefined {
-  const y = String(ejercicio);
-  for (let i = 1; i < cabecera.length; i++) {
-    if (cabecera[i].toLowerCase().includes(y)) return i;
-  }
-  return undefined;
+  if (detectarFusionEnCabecera(cabecera)) return undefined;
+  const idx = indiceColumnaEjercicioEstricto(cabecera, ejercicio);
+  return idx ?? undefined;
 }
 
 /** Resuelve columnas comparativas por año de cabecera (IMPORTE 2025 / IMPORTE 2024). */
@@ -1153,6 +1215,8 @@ function extraerCifrasVinculadasDeTablas(
   const indice = new Map<string, ImporteVinculadasFila>();
 
   for (const tabla of tablas) {
+    if (tabla.tabla_rota) continue;
+
     const nombreTabla = nombreTablaVinculadas(tabla);
     const apartadoRef = tabla.apartado ?? "09";
     const { actual: colActual, anterior: colAnterior } = columnasEjercicioVinculadas(

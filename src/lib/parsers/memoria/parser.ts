@@ -147,7 +147,8 @@ async function extraerTexto(buffer: Buffer, formato: FormatoMemoria): Promise<{ 
 export async function parseMemoria(
   buffer: Buffer,
   fileName: string,
-  tipo: "memoria_word" | "memoria_pdf"
+  tipo: "memoria_word" | "memoria_pdf",
+  ejercicioActual?: number
 ): Promise<MemoriaNormalizada> {
   const formato = detectarFormatoMemoria(buffer) ?? (tipo === "memoria_pdf" ? "pdf" : "docx");
   const { texto: bruto, paginas } = await extraerTexto(buffer, formato);
@@ -166,12 +167,23 @@ export async function parseMemoria(
       : segmentarBloquesDeTexto(texto);
 
   const apartados = extraerApartadosDesdeBloques(bloquesDocumento);
-  const tablas = extraerTablasDesdeBloques(bloquesDocumento, texto);
+
+  // Anclaje temporal: ejercicio explícito > nombre archivo > detección en contenido
+  const datosClave = extraerDatosClave(texto, fileName, ejercicioActual);
+  const ejercicioAncla = ejercicioActual ?? datosClave.ejercicio;
+
+  const tablas = extraerTablasDesdeBloques(bloquesDocumento, texto, ejercicioAncla);
   const cifras = extraerCifras(texto);
   const statements = extraerStatements(texto);
   const formal = analizarFormal(texto);
-  const datosClave = extraerDatosClave(texto, fileName);
-  const anios = extraerAniosMencionados(texto);
+  const anios = extraerAniosMencionados(texto, ejercicioAncla);
+
+  const erroresParseo = tablas
+    .filter((t) => t.tabla_rota && t.errorParseo)
+    .map((t) => {
+      const ref = t.apartado ? `Apartado ${t.apartado}` : t.titulo?.slice(0, 60) || "Tabla";
+      return `${ref}: ${t.errorParseo}`;
+    });
 
   return {
     apartados,
@@ -182,6 +194,11 @@ export async function parseMemoria(
     datosClave,
     anios,
     textoCompleto: texto,
-    metadata: { paginas, archivo: fileName, formato },
+    metadata: {
+      paginas,
+      archivo: fileName,
+      formato,
+      ...(erroresParseo.length > 0 ? { erroresParseo } : {}),
+    },
   };
 }

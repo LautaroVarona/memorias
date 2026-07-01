@@ -166,6 +166,7 @@ export interface CaseData {
       fullText: string;
       keyData?: DatosClaveMemoria;
       tables?: TablaMemoria[];
+      metadata?: MemoriaNormalizada["metadata"];
       propuestaAplicacion?: PropuestaAplicacion;
       vinculadas?: VinculadasMemoria;
     };

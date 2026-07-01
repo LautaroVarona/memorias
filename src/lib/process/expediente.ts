@@ -152,6 +152,9 @@ export async function processExpediente(expedienteId: string): Promise<{
               ejercicio: parsedMemoria.datosClave.ejercicio,
               cliente: parsedMemoria.datosClave.denominacion,
               formato: parsedMemoria.metadata.formato,
+              ...(parsedMemoria.metadata.erroresParseo?.length
+                ? { erroresParseo: parsedMemoria.metadata.erroresParseo }
+                : {}),
             }),
           },
         });

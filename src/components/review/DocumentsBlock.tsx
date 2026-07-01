@@ -28,6 +28,7 @@ function parseMeta(metadata?: string): {
   ejercicio?: number;
   cliente?: string;
   parseError?: string;
+  erroresParseo?: string[];
 } {
   if (!metadata) return {};
   try {
@@ -56,7 +57,12 @@ function buildStatuses(archivos: ArchivoDoc[], expedienteEjercicio?: number): Do
     priorYear
   );
 
-  const principalHasError = !!memoriaPrincipal?.meta.parseError;
+  const principalHasError =
+    !!memoriaPrincipal?.meta.parseError ||
+    (memoriaPrincipal?.meta.erroresParseo?.length ?? 0) > 0;
+  const anteriorHasError =
+    !!memoriaAnterior?.meta.parseError ||
+    (memoriaAnterior?.meta.erroresParseo?.length ?? 0) > 0;
 
   return [
     {
@@ -69,26 +75,30 @@ function buildStatuses(archivos: ArchivoDoc[], expedienteEjercicio?: number): Do
       label: "Memoria (ejercicio actual)",
       loaded: !!memoriaPrincipal,
       warning: principalHasError,
-      detail: principalHasError
+      detail: memoriaPrincipal?.meta.parseError
         ? "No se pudo leer el documento"
-        : memoriaPrincipal?.meta.ejercicio
-          ? `Ejercicio ${memoriaPrincipal.meta.ejercicio}`
-          : mainYear !== undefined
-            ? `Ejercicio ${mainYear}`
-            : undefined,
+        : (memoriaPrincipal?.meta.erroresParseo?.length ?? 0) > 0
+          ? `${memoriaPrincipal!.meta.erroresParseo!.length} tabla(s) con error de parseo`
+          : memoriaPrincipal?.meta.ejercicio
+            ? `Ejercicio ${memoriaPrincipal.meta.ejercicio}`
+            : mainYear !== undefined
+              ? `Ejercicio ${mainYear}`
+              : undefined,
       fileName: memoriaPrincipal?.nombre,
     },
     {
       label: "Memoria ejercicio anterior",
       loaded: !!memoriaAnterior,
-      warning: !!memoriaAnterior?.meta.parseError,
+      warning: anteriorHasError,
       detail: memoriaAnterior?.meta.parseError
         ? "No se pudo leer el documento"
-        : memoriaAnterior?.meta.ejercicio
-          ? `Ejercicio ${memoriaAnterior.meta.ejercicio}`
-          : priorYear !== undefined
-            ? `Ejercicio ${priorYear}`
-            : undefined,
+        : (memoriaAnterior?.meta.erroresParseo?.length ?? 0) > 0
+          ? `${memoriaAnterior!.meta.erroresParseo!.length} tabla(s) con error de parseo`
+          : memoriaAnterior?.meta.ejercicio
+            ? `Ejercicio ${memoriaAnterior.meta.ejercicio}`
+            : priorYear !== undefined
+              ? `Ejercicio ${priorYear}`
+              : undefined,
       fileName: memoriaAnterior?.nombre,
     },
   ];
