@@ -3,6 +3,8 @@
  * Preserva celdas vacías, infiere cabeceras por tabla y detecta sub-conceptos indentados.
  */
 
+import { normalizarTextoApartado } from "@/lib/rules/helpers/text-normalize";
+
 export interface MemoriaTableRow {
   cells: string[];
   is_subconcept?: boolean;
@@ -110,12 +112,80 @@ function columnasParecenCabecera(cells: string[]): boolean {
   });
 }
 
+const ETIQUETA_NATURALEZA_VINCULADA =
+  /^(entidad\s+(dependiente|dominante|vinculada)|sociedad\s+dominante|parte\s+vinculada)/i;
+
+/** Nombre de empresa/sociedad (no es título de tabla). */
+export function pareceNombreEmpresa(texto: string): boolean {
+  const t = limpiarValorCelda(texto);
+  if (t.length < 8) return false;
+  if (ETIQUETA_NATURALEZA_VINCULADA.test(t)) return false;
+  if (/\b(S\.?\s*L\.?\s*U?\.?|S\.?\s*A\.?|S\.?\s*COOP)\b/i.test(t)) return true;
+  if (/\b(GRUPO|INTERIM|EMPRESARIAL|AGROMIN|CITRICOS|PATRIMONIAL)\b/i.test(t) && t.length >= 12) {
+    return true;
+  }
+  return false;
+}
+
+function normalizarEtiquetaFilaTabla(label: string): string {
+  return normalizarTextoApartado(label)
+    .replace(/\bimporte\s+20\d{2}\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Etiqueta estable para alinear filas entre memorias.
+ * En tablas de vinculadas el NIF suele ir vacío y el nombre en la 2.ª columna.
+ */
+export function etiquetaFilaParaAlineacion(cells: string[], header?: string[]): string {
+  const candidatos: { label: string; score: number }[] = [];
+
+  for (let i = 0; i < cells.length; i++) {
+    const raw = cells[i] ?? "";
+    const label = normalizarEtiquetaFilaTabla(raw);
+    if (!label || ETIQUETA_NATURALEZA_VINCULADA.test(label)) continue;
+    if (/^[A-Z]\d{7,8}[A-Z0-9]?$/i.test(raw.trim())) continue;
+
+    let score = 0;
+    const colHeader = header?.[i] ?? "";
+    if (/\bIDENTIFICACI[ÓO]N\b/i.test(colHeader)) score += 12;
+    if (/\bNIF\b/i.test(colHeader)) score -= 5;
+    if (/\bDESCRIPCI[ÓO]N\b/i.test(colHeader)) score += 8;
+    if (/\bCONCEPTO\b/i.test(colHeader)) score += 8;
+    if (pareceNombreEmpresa(raw)) score += 6;
+    if (i === 0) score += 2;
+    if (label.length >= 10) score += 2;
+
+    candidatos.push({ label, score });
+  }
+
+  candidatos.sort((a, b) => b.score - a.score);
+  if (candidatos.length > 0 && candidatos[0].score > 0) return candidatos[0].label;
+
+  return normalizarEtiquetaFilaTabla(cells[0] ?? "");
+}
+
+/** Si la columna NIF está vacía en todas las filas de datos, la elimina. */
+export function colapsarColumnaNifVacia(filas: string[][]): string[][] {
+  if (filas.length < 2) return filas;
+  const header = filas[0];
+  if (!/\bNIF\b/i.test(header[0] ?? "")) return filas;
+  const datosVacios = filas.slice(1).every((fila) => !(fila[0] ?? "").trim());
+  if (!datosVacios) return filas;
+  return filas.map((fila) => fila.slice(1));
+}
+
 /** Cabecera titular de tabla (MOVIMIENTOS…, ELEMENTO…, INFORMACIÓN SOBRE…). */
 export function esCabeceraTituloTabla(cells: string[]): boolean {
   if (cells.length < 2) return false;
   if (!columnasParecenCabecera(cells)) return false;
 
   const c0 = cells[0] ?? "";
+  if (pareceNombreEmpresa(c0)) return false;
+  if (ETIQUETA_NATURALEZA_VINCULADA.test(c0)) return false;
+  if (/\bentidad\s+dependiente\b/i.test(cells[1] ?? "")) return false;
+
   if (PATRON_TITULO_CABECERA.test(c0)) return true;
 
   if (c0.length >= 12 && c0 === c0.toUpperCase() && /[A-ZÁÉÍÓÚÑ]{4}/.test(c0)) {
@@ -143,7 +213,16 @@ export function debeIniciarNuevaTabla(cells: string[], tablaActual: string[][]):
   if (!tieneFilasDatos) return false;
 
   if (esCabeceraAnual(cells) && tablaActual.some((r) => !esCabeceraAnual(r))) return true;
-  if (esCabeceraTituloTabla(cells)) return true;
+
+  if (esCabeceraTituloTabla(cells)) {
+    const esTablaFinancieraVinculadas =
+      /\bDESCRIPCI[ÓO]N\b/i.test(headerActual[0] ?? "") &&
+      headerActual.slice(1).some(
+        (c) => /\b20\d{2}\b/.test(c) || /\bEMPRESAS\s+DEPENDIENTES\b/i.test(c)
+      );
+    if (esTablaFinancieraVinculadas && pareceNombreEmpresa(cells[0] ?? "")) return false;
+    return true;
+  }
 
   return false;
 }
@@ -191,8 +270,9 @@ export function detectarSubconcepto(celdaRaw: string): { text: string; is_subcon
 /** Alinea todas las filas al ancho de la cabecera sin colapsar celdas vacías internas. */
 export function normalizarAnchoFilas(rawFilas: string[][]): string[][] {
   if (rawFilas.length === 0) return [];
-  const ancho = Math.max(...rawFilas.map((f) => f.length));
-  const normalizadas = rawFilas.map((fila) => alinearFilaAlAnchoCabecera(fila, ancho));
+  const colapsadas = colapsarColumnaNifVacia(rawFilas);
+  const ancho = Math.max(...colapsadas.map((f) => f.length));
+  const normalizadas = colapsadas.map((fila) => alinearFilaAlAnchoCabecera(fila, ancho));
 
   // Solo recorta columnas vacías al final si TODAS las filas las tienen vacías
   // (no elimina columnas intermedias ni la primera columna vacía de etiqueta).

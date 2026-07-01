@@ -9,6 +9,7 @@ import {
   type ComparedTable,
 } from "./apartado-table-diff";
 import { segmentMemoriaContent, type MemoriaSegment } from "./parse-pipe-table";
+import { etiquetaFilaParaAlineacion } from "@/lib/parsers/memoria/table-parser";
 import {
   agruparLineasEnParrafos,
   claveSemanticaBloque,
@@ -179,11 +180,21 @@ function segmentKey(seg: MemoriaSegment): string {
   if (seg.type === "text") {
     return `t:${normalizarTextoComparacionInteranual(seg.content).slice(0, 240)}`;
   }
-  const labels = seg.rows
-    .slice(0, 6)
-    .map((r) => normalizarTextoComparacionInteranual(r.cells[0] ?? ""))
+  const header = seg.cabecera ?? seg.rows[0]?.cells ?? [];
+  const dataRows = seg.rows.length > 1 ? seg.rows.slice(1) : seg.rows;
+  const labels = dataRows
+    .slice(0, 8)
+    .map((r) =>
+      normalizarTextoComparacionInteranual(etiquetaFilaParaAlineacion(r.cells, header))
+    )
+    .filter((l) => l.length > 0)
     .join("|");
-  return `tbl:${labels}`;
+  const headerKey = header
+    .map((c) => normalizarTextoComparacionInteranual(c))
+    .filter((c) => c.length > 0)
+    .slice(0, 4)
+    .join("+");
+  return `tbl:${headerKey}::${labels}`;
 }
 
 function segmentsToBlocks(segments: MemoriaSegment[]): { key: string; segment: MemoriaSegment }[] {

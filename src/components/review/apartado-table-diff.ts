@@ -1,4 +1,5 @@
 import { parseImporte } from "@/lib/parsers/memoria/extractors";
+import { etiquetaFilaParaAlineacion, colapsarColumnaNifVacia } from "@/lib/parsers/memoria/table-parser";
 import { compareWithTolerance } from "@/lib/rules/helpers/accounts";
 import { celdaImporteTieneValor } from "@/lib/rules/helpers/tablas-interanual";
 import { normalizarTextoApartado } from "@/lib/rules/helpers/text-normalize";
@@ -83,6 +84,7 @@ function esCabeceraImportes(header: string[]): boolean {
  */
 function normalizarFilasTabla(rows: string[][]): string[][] {
   if (rows.length === 0) return rows;
+  rows = colapsarColumnaNifVacia(rows);
   const header = rows[0];
   const width = header.length;
   const importes = esCabeceraImportes(header);
@@ -146,10 +148,12 @@ function yearColIndex(header: string[], year: number): number | null {
 /** Alinea filas de cuerpo por etiqueta (LCS); las no emparejadas quedan como []. */
 function alignRows(
   priorBody: string[][],
-  currentBody: string[][]
+  currentBody: string[][],
+  priorHeader: string[],
+  currentHeader: string[]
 ): { prior: string[]; current: string[] }[] {
-  const priorLabels = priorBody.map((r) => normalizarEtiquetaFila(r[0] ?? ""));
-  const currentLabels = currentBody.map((r) => normalizarEtiquetaFila(r[0] ?? ""));
+  const priorLabels = priorBody.map((r) => etiquetaFilaParaAlineacion(r, priorHeader));
+  const currentLabels = currentBody.map((r) => etiquetaFilaParaAlineacion(r, currentHeader));
 
   const n = priorLabels.length;
   const m = currentLabels.length;
@@ -205,7 +209,7 @@ export function buildTableComparison(priorText: string, currentText: string): Co
   const priorSharedCol = sharedYear !== null ? yearColIndex(priorHeader, sharedYear) : null;
   const currentSharedCol = sharedYear !== null ? yearColIndex(currentHeader, sharedYear) : null;
 
-  const rows: SideBySideRow[] = alignRows(priorBody, currentBody).map(({ prior, current }) => {
+  const rows: SideBySideRow[] = alignRows(priorBody, currentBody, priorHeader, currentHeader).map(({ prior, current }) => {
     const hasPrior = prior.length > 0;
     const hasCurrent = current.length > 0;
 
