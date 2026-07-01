@@ -116,7 +116,6 @@ export function isSoloCambioEsperado(prior: string, current: string): boolean {
   const p = limpiarCeldaTabla(prior);
   const c = limpiarCeldaTabla(current);
   if (p === c) return false;
-  if (cifrasEquivalentes(p, c)) return false;
   return normalizarTextoComparacionInteranual(p) === normalizarTextoComparacionInteranual(c);
 }
 
@@ -130,8 +129,8 @@ function normalizeTextForDiff(text: string): string {
 
 function textosEquivalentes(a: string, b: string): boolean {
   if (a === b) return true;
-  if (cifrasEquivalentes(a, b)) return true;
-  return normalizarTextoComparacionInteranual(a) === normalizarTextoComparacionInteranual(b);
+  if (normalizarTextoComparacionInteranual(a) === normalizarTextoComparacionInteranual(b)) return true;
+  return cifrasEquivalentes(a, b);
 }
 
 /** Descompone bloques (incluso fusionados con \\n\\n) en un párrafo por elemento. */

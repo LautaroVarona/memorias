@@ -12,6 +12,9 @@ import { detectarFormatoMemoria, parseMemoria } from "../src/lib/parsers/memoria
 import { parseImporte } from "../src/lib/parsers/memoria/extractors";
 import { runValidationEngine, computeCaseScore } from "../src/lib/rules/engine";
 import type { MemoriaNormalizada } from "../src/types/domain";
+import { assignMemorias, resolveEjercicioActual } from "../src/lib/process/resolve-ejercicio";
+import { buildContentComparison } from "../src/components/review/apartado-line-diff";
+import { buildApartadoGroups } from "../src/components/review/group-by-apartado";
 
 const EXAMPLES = path.join(__dirname, "..", "examples");
 
@@ -109,6 +112,76 @@ async function main() {
     );
   } else {
     console.log("  (fixtures M0106578 no presentes — omitido)");
+  }
+
+  // ── 2c. Memorias ENMIN M0106567 (Word binario 2025 + RTF 2024) ───────────
+  console.log("\n== 2c. Memorias M0106567 ENMIN (binario vs RTF) ==");
+  const enmin2025Path = path.join(EXAMPLES, "M0106567.DOC");
+  const enmin2024Path = path.join(EXAMPLES, "M0106567[1].DOC");
+  if (existsSync(enmin2025Path) && existsSync(enmin2024Path)) {
+    const enmin2025Buf = readFileSync(enmin2025Path);
+    const enmin2024Buf = readFileSync(enmin2024Path);
+
+    assert(detectarFormatoMemoria(enmin2025Buf) === "doc_binario", "M0106567.DOC es Word binario (2025)");
+    assert(detectarFormatoMemoria(enmin2024Buf) === "rtf", "M0106567[1].DOC es RTF (2024)");
+
+    const memoriaEnmin2025 = await parseMemoria(enmin2025Buf, "M0106567.DOC", "memoria_word", 2025);
+    const memoriaEnmin2024 = await parseMemoria(enmin2024Buf, "M0106567[1].DOC", "memoria_word", 2024);
+
+    resumenMemoria("ENMIN 2025 (binario)", memoriaEnmin2025);
+    resumenMemoria("ENMIN 2024 (RTF)", memoriaEnmin2024);
+
+    assert(
+      memoriaEnmin2025.textoCompleto.includes("MEMORIA ABREVIADA 2025"),
+      "Memoria 2025: portada con año 2025 en el texto extraído"
+    );
+    assert(
+      memoriaEnmin2024.textoCompleto.includes("MEMORIA ABREVIADA 2024"),
+      "Memoria 2024: portada con año 2024 en el texto extraído"
+    );
+    assert(
+      memoriaEnmin2025.textoCompleto.includes("ejercicio 2025"),
+      "Memoria 2025: párrafo de estimaciones con ejercicio 2025"
+    );
+    assert(
+      memoriaEnmin2024.textoCompleto.includes("ejercicio 2024"),
+      "Memoria 2024: párrafo de estimaciones con ejercicio 2024"
+    );
+
+    const ejercicioEnmin = resolveEjercicioActual({
+      memoriasEjercicios: [
+        memoriaEnmin2025.datosClave.ejercicio,
+        memoriaEnmin2024.datosClave.ejercicio,
+      ].filter((y): y is number => y !== undefined),
+      expedienteEjercicio: 2025,
+    });
+    const { memoria: actualEnmin, memoriaAnterior: anteriorEnmin } = assignMemorias(
+      [memoriaEnmin2025, memoriaEnmin2024],
+      ejercicioEnmin
+    );
+    assert(actualEnmin?.metadata.archivo === "M0106567.DOC", "Asignación: actual = M0106567.DOC (2025)");
+    assert(anteriorEnmin?.metadata.archivo === "M0106567[1].DOC", "Asignación: anterior = M0106567[1].DOC (2024)");
+
+    const groupsEnmin = buildApartadoGroups(
+      actualEnmin!.apartados,
+      [],
+      anteriorEnmin!.apartados
+    );
+    const g02 = groupsEnmin.find((g) => g.num === "02");
+    const cmpEst = g02
+      ? buildContentComparison(g02.contenidoAnterior ?? "", g02.contenido ?? "").find(
+          (b) => b.type === "text" && /elaboraci[oó]n de la cuentas/.test(b.line.current)
+        )
+      : undefined;
+    assert(
+      cmpEst?.type === "text" &&
+        cmpEst.line.kind === "expected" &&
+        cmpEst.line.current.includes("2025") &&
+        cmpEst.line.prior.includes("2024"),
+      "Comparativa apartado 02: estimaciones 2024 vs 2025 como cambio esperado"
+    );
+  } else {
+    console.log("  (fixtures M0106567 no presentes — omitido)");
   }
 
   // ── 2. Memorias .DOC ──────────────────────────────────────────────────────

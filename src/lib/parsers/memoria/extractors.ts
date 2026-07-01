@@ -37,10 +37,29 @@ import type {
 
 export function parseImporte(str: string): number | null {
   const limpio = str.replace(/[\u0000-\u001F\u007F]/g, "");
-  const match = limpio.match(/(-?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|-?\d+(?:,\d{1,2})?)/);
-  if (!match) return null;
-  const n = parseFloat(match[1].replace(/\./g, "").replace(",", "."));
-  return isNaN(n) ? null : n;
+  const regex = /-?\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|-?\d+(?:,\d{1,2})?/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(limpio)) !== null) {
+    const start = match.index;
+    const token = match[0];
+    const rest = limpio.slice(start);
+
+    if (/^\d{1,2}\/\d{1,2}\/(19|20)\d{2}/.test(rest)) continue;
+
+    // Evitar confundir años 19xx/20xx con importes (p. ej. "2024" → 202 por el patrón de miles).
+    if (/^\d{3}$/.test(token) && /^\d$/.test(limpio.charAt(start + 3))) {
+      const yearCand = limpio.slice(start, start + 4);
+      if (/^(19|20)\d{2}$/.test(yearCand)) continue;
+    }
+    const bare = token.replace(/\./g, "").replace(/,/g, "");
+    if (/^(19|20)\d{2}$/.test(bare)) continue;
+
+    const n = parseFloat(token.replace(/\./g, "").replace(",", "."));
+    if (!isNaN(n)) return n;
+  }
+
+  return null;
 }
 
 /**
