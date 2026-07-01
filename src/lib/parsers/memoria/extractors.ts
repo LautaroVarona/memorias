@@ -990,10 +990,11 @@ function extraerCifrasPropuestaDeTablas(
   const cifras: CifrasPropuestaTabla = {};
 
   for (const tabla of tablas) {
-    const { actual: colActual, anterior: colAnterior } = columnasComparativasPorEjercicio(
+    const { actual: colActual, anterior: colAnterior, anclajeRoto } = columnasComparativasPorEjercicio(
       tabla.cabecera,
       ejercicio
     );
+    if (anclajeRoto || colActual === undefined) continue;
 
     for (const fila of tabla.filas) {
       const etiqueta = normalizarEtiquetaFila(fila[0] ?? "");
@@ -1193,7 +1194,10 @@ function columnasComparativasPorEjercicio(
   return { actual, anterior };
 }
 
-function columnasEjercicioVinculadas(cabecera: string[], ejercicioMemoria?: number): { actual: number; anterior?: number } {
+function columnasEjercicioVinculadas(
+  cabecera: string[],
+  ejercicioMemoria?: number
+): { actual?: number; anterior?: number; anclajeRoto?: boolean } {
   return columnasComparativasPorEjercicio(cabecera, ejercicioMemoria);
 }
 
