@@ -113,7 +113,7 @@ function columnasParecenCabecera(cells: string[]): boolean {
 }
 
 const ETIQUETA_NATURALEZA_VINCULADA =
-  /^(entidad\s+(dependiente|dominante|vinculada)|sociedad\s+dominante|parte\s+vinculada)/i;
+  /^(entidad\s+(dependiente|dominante|vinculada)|sociedad\s+dominante|parte\s+vinculada|otras\s+partes\s+vinculadas)/i;
 
 /** Nombre de empresa/sociedad (no es título de tabla). */
 export function pareceNombreEmpresa(texto: string): boolean {
@@ -121,9 +121,6 @@ export function pareceNombreEmpresa(texto: string): boolean {
   if (t.length < 8) return false;
   if (ETIQUETA_NATURALEZA_VINCULADA.test(t)) return false;
   if (/\b(S\.?\s*L\.?\s*U?\.?|S\.?\s*A\.?|S\.?\s*COOP)\b/i.test(t)) return true;
-  if (/\b(GRUPO|INTERIM|EMPRESARIAL|AGROMIN|CITRICOS|PATRIMONIAL)\b/i.test(t) && t.length >= 12) {
-    return true;
-  }
   return false;
 }
 
@@ -176,6 +173,40 @@ export function colapsarColumnaNifVacia(filas: string[][]): string[][] {
   return filas.map((fila) => fila.slice(1));
 }
 
+const PATRON_SUBTITULO_TABLA_VINCULADAS =
+  /^(OTRAS\s+PARTES\s+VINCULADAS|EMPRESAS\s+DEPENDIENTES|EMPRESAS\s+ASOCIADAS|ENTIDAD\s+DOMINANTE|ENTIDADES\s+MULTIGRUPO|SOCIEDADES\s+MULTIGRUPO)/i;
+
+/**
+ * Etiqueta de fila que Word a veces emite en un párrafo aparte (sin separadores de celda).
+ * Típico en tablas de partes vinculadas del Word binario A3SOC.
+ */
+export function pareceEtiquetaFilaSuelta(linea: string): boolean {
+  const t = limpiarValorCelda(linea);
+  if (!t || t.length > 160 || linea.includes("|")) return false;
+  if (celdaPareceImporte(t)) return false;
+  if (celdaEsItemLista(t)) return false;
+  if (PATRON_SUBTITULO_TABLA_VINCULADAS.test(t)) return false;
+  if (/^(DESCRIPCI[ÓO]N|IDENTIFICACI[ÓO]N|CONCEPTO|NATURALEZA)\b/i.test(t)) return false;
+  if (/^(La|El|Los|Las|Durante|Se muestran|En el ejercicio|Personal|Miembros|Participaci)/i.test(t) && t.length > 55) {
+    return false;
+  }
+  if (/\.\s+[A-ZÁÉÍÓÚÑ]/.test(t)) return false;
+  return true;
+}
+
+/** Inserta una etiqueta pendiente en la primera columna vacía de una fila tabular. */
+export function fusionarEtiquetaEnCeldas(
+  cells: string[],
+  etiquetaPendiente: string | null
+): { cells: string[]; etiquetaPendiente: string | null } {
+  if (!etiquetaPendiente || (cells[0] ?? "").trim()) {
+    return { cells, etiquetaPendiente };
+  }
+  const merged = [...cells];
+  merged[0] = etiquetaPendiente;
+  return { cells: merged, etiquetaPendiente: null };
+}
+
 /** Cabecera titular de tabla (MOVIMIENTOS…, ELEMENTO…, INFORMACIÓN SOBRE…). */
 export function esCabeceraTituloTabla(cells: string[]): boolean {
   if (cells.length < 2) return false;
@@ -185,6 +216,7 @@ export function esCabeceraTituloTabla(cells: string[]): boolean {
   if (pareceNombreEmpresa(c0)) return false;
   if (ETIQUETA_NATURALEZA_VINCULADA.test(c0)) return false;
   if (/\bentidad\s+dependiente\b/i.test(cells[1] ?? "")) return false;
+  if (PATRON_SUBTITULO_TABLA_VINCULADAS.test(c0.trim())) return false;
 
   if (PATRON_TITULO_CABECERA.test(c0)) return true;
 
@@ -218,9 +250,11 @@ export function debeIniciarNuevaTabla(cells: string[], tablaActual: string[][]):
     const esTablaFinancieraVinculadas =
       /\bDESCRIPCI[ÓO]N\b/i.test(headerActual[0] ?? "") &&
       headerActual.slice(1).some(
-        (c) => /\b20\d{2}\b/.test(c) || /\bEMPRESAS\s+DEPENDIENTES\b/i.test(c)
+        (c) => /\b20\d{2}\b/.test(c) || /\b(EMPRESAS\s+DEPENDIENTES|OTRAS\s+PARTES\s+VINCULADAS)\b/i.test(c)
       );
-    if (esTablaFinancieraVinculadas && pareceNombreEmpresa(cells[0] ?? "")) return false;
+    if (esTablaFinancieraVinculadas && (pareceNombreEmpresa(cells[0] ?? "") || PATRON_SUBTITULO_TABLA_VINCULADAS.test((cells[0] ?? "").trim()))) {
+      return false;
+    }
     return true;
   }
 

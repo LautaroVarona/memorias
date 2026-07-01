@@ -22,7 +22,9 @@ import {
   esTablaListaPseudo,
   filasTablaListaAVertical,
   alinearFilaAlAnchoCabecera,
+  fusionarEtiquetaEnCeldas,
   limpiarValorCelda,
+  pareceEtiquetaFilaSuelta,
   parsearLineaTabla,
   procesarBloqueTabla,
   serializarFilasTabla,
@@ -447,8 +449,23 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
   for (const lineaRaw of texto.split(/\n/)) {
     const linea = lineaRaw.trim();
     if (esLineaTabla(linea)) {
-      flushText();
-      const cells = parsearLineaTabla(linea);
+      let cells = parsearLineaTabla(linea);
+      let etiquetaPendiente: string | null = null;
+
+      if (textBuffer.length > 0) {
+        const ultima = textBuffer[textBuffer.length - 1]?.trim() ?? "";
+        if (pareceEtiquetaFilaSuelta(ultima)) {
+          etiquetaPendiente = ultima;
+          textBuffer.pop();
+        }
+      }
+
+      if (textBuffer.length > 0) flushText();
+
+      ({ cells, etiquetaPendiente } = fusionarEtiquetaEnCeldas(cells, etiquetaPendiente));
+      if (etiquetaPendiente) {
+        textBuffer.push(etiquetaPendiente);
+      }
 
       if (tabla.length > 0 && debeIniciarNuevaTabla(cells, tabla)) {
         flushTabla();
@@ -464,6 +481,13 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
 
       tabla.push(cells);
     } else {
+      if (linea && tabla.length > 0 && pareceEtiquetaFilaSuelta(linea)) {
+        const ancho = tabla[0].length;
+        const fila = alinearFilaAlAnchoCabecera([linea], ancho);
+        tabla.push(fila);
+        continue;
+      }
+
       flushTabla();
       if (linea) {
         if (linea.includes("|")) {

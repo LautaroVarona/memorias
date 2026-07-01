@@ -345,8 +345,10 @@ export function extraerTextoRtf(buffer: Buffer): string {
  *  - `\lastrow` marca la última fila: al cerrarla con `\row` se emite la tabla
  *    completa, lo que mantiene tablas contiguas (BASE DE REPARTO / DISTRIBUCIÓN)
  *    como entidades independientes en vez de fusionarlas.
- *  - `\intbl` indica que el párrafo pertenece a la tabla; `\pard` lo reinicia.
- *    Si llega texto real fuera de un párrafo `\intbl`, la tabla ha terminado.
+ *  - `\intbl` / `\itapN` indica que el párrafo pertenece a la celda; `\pard` lo reinicia.
+ *    Tras `\cell`, el texto de la siguiente celda puede llegar sin `\intbl` (A3SOC reciente).
+ *    Tras `\row`, la primera celda de la fila siguiente puede llegar igualmente sin `\intbl`.
+ *    Si llega texto real fuera de celda/tablas, la tabla ha terminado.
  */
 export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
   const s = buffer.toString("latin1");
@@ -362,6 +364,9 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
   let tablaActual: string[][] = [];
   let inTable = false; // dentro de la región de una tabla (entre \trowd y su cierre)
   let inIntbl = false; // el párrafo actual está marcado \intbl
+  let itapLevel = 0; // \itapN: párrafo dentro de celda aunque falte \intbl
+  let afterCell = false; // tras \cell, el texto pertenece a la siguiente celda de la fila
+  let afterRow = false; // tras \row, el texto puede ser la 1.ª celda aunque falte \intbl
   let pendingClose = false; // \lastrow visto: cerrar la tabla al próximo \row
   let cellxEnFila = 0; // columnas definidas por \cellx en la fila actual
   let celdasFusionadasPendientes = 0; // \clmrg: celdas vacías tras el próximo \cell
@@ -403,6 +408,8 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
   const pushCelda = () => {
     filaActual.push(celdaActual);
     celdaActual = "";
+    afterRow = false;
+    afterCell = true;
     while (celdasFusionadasPendientes > 0) {
       filaActual.push("");
       celdasFusionadasPendientes--;
@@ -419,6 +426,8 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
     }
     filaActual = [];
     celdaActual = "";
+    afterCell = false;
+    afterRow = false;
   };
 
   /** Cierra la tabla en curso (fila pendiente incluida) y vuelve a modo texto. */
@@ -427,17 +436,24 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
     emitTable();
     inTable = false;
     inIntbl = false;
+    itapLevel = 0;
+    afterCell = false;
+    afterRow = false;
     pendingClose = false;
   };
 
+  const enContextoCelda = () => inIntbl || itapLevel > 0 || afterCell || afterRow;
+
   const routeText = (value: string) => {
     if (inTable) {
-      if (inIntbl) {
+      if (enContextoCelda()) {
         celdaActual += value;
+        afterCell = false;
+        afterRow = false;
         return;
       }
-      // Texto real fuera de un párrafo \intbl ⇒ la tabla terminó.
-      if (value.trim().length === 0) return; // espacios sueltos entre control words
+      // Texto real fuera de celda/tablas ⇒ la tabla terminó.
+      if (value.trim().length === 0) return;
       closeTable();
       textBuffer += value;
       return;
@@ -509,11 +525,16 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
           cellxEnFila++;
         } else if (word === "clmrg" || word === "clmgf") {
           celdasFusionadasPendientes++;
+        } else if (word === "itap" && m[2]) {
+          itapLevel = parseInt(m[2], 10);
         } else if (word === "intbl") {
           inTable = true;
           inIntbl = true;
+          afterCell = false;
+          afterRow = false;
         } else if (word === "pard" || word === "sectd") {
           inIntbl = false;
+          itapLevel = 0;
         } else if (word === "cell" || word === "nestcell") {
           if (inTable) pushCelda();
         } else if (word === "lastrow") {
@@ -522,13 +543,16 @@ export function extraerBloquesRtf(buffer: Buffer): RtfBloque[] {
           if (inTable) {
             pushFila();
             if (pendingClose) closeTable();
-            else inIntbl = false;
+            else {
+              inIntbl = false;
+              afterRow = true;
+            }
           }
         } else if (word === "par" || word === "line") {
-          if (inTable && inIntbl) celdaActual += " ";
+          if (inTable && enContextoCelda()) celdaActual += " ";
           else if (!inTable) textBuffer += "\n";
         } else if (word === "tab") {
-          if (inTable && inIntbl) celdaActual += "\t";
+          if (inTable && enContextoCelda()) celdaActual += "\t";
           else if (!inTable) textBuffer += "\t";
         } else if (word === "u" && m[2]) {
           const code = parseInt(m[2], 10);

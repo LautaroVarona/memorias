@@ -5,7 +5,9 @@ import {
   esLineaTabla,
   esTablaListaPseudo,
   filasTablaListaAVertical,
+  fusionarEtiquetaEnCeldas,
   limpiarValorCelda,
+  pareceEtiquetaFilaSuelta,
   parsearLineaTabla,
   procesarBloqueTabla,
 } from "@/lib/parsers/memoria/table-parser";
@@ -66,15 +68,39 @@ export function segmentMemoriaContent(text: string): MemoriaSegment[] {
 
   for (const line of lines) {
     if (esLineaTabla(line)) {
-      flushText();
-      const cells = parseTableRow(line);
+      let cells = parseTableRow(line);
+      let etiquetaPendiente: string | null = null;
+
+      if (textBuffer.length > 0) {
+        const ultima = textBuffer[textBuffer.length - 1]?.trim() ?? "";
+        if (pareceEtiquetaFilaSuelta(ultima)) {
+          etiquetaPendiente = ultima;
+          textBuffer.pop();
+        }
+      }
+
+      if (textBuffer.length > 0) flushText();
+
+      ({ cells, etiquetaPendiente } = fusionarEtiquetaEnCeldas(cells, etiquetaPendiente));
+      if (etiquetaPendiente) {
+        textBuffer.push(etiquetaPendiente);
+      }
+
       if (tableBuffer.length > 0 && debeIniciarNuevaTabla(cells, tableBuffer)) {
         flushTable();
       }
       tableBuffer.push(cells);
     } else {
-      flushTable();
       const trimmed = line.trim();
+      if (trimmed && tableBuffer.length > 0 && pareceEtiquetaFilaSuelta(trimmed)) {
+        const ancho = tableBuffer[0].length;
+        tableBuffer.push(
+          Array.from({ length: ancho }, (_, i) => (i === 0 ? trimmed : ""))
+        );
+        continue;
+      }
+
+      flushTable();
       if (trimmed.includes("|")) {
         const cells = parsearLineaTabla(trimmed).map(limpiarValorCelda).filter((c) => c.length > 0);
         if (cells.length >= 2 && cells.every(celdaEsItemLista)) {
