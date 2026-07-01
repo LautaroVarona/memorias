@@ -96,6 +96,7 @@ export function assignMemorias(
 export interface DocMeta {
   ejercicio?: number;
   parseError?: string;
+  erroresParseo?: string[];
 }
 
 export interface ArchivoMemoriaRef {

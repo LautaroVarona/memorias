@@ -1,6 +1,7 @@
 import {
   assignMemoriaArchivos,
   resolveDocumentYears,
+  type DocMeta,
 } from "@/lib/process/resolve-ejercicio";
 
 interface ArchivoDoc {
@@ -24,12 +25,7 @@ interface DocStatus {
   fileName?: string;
 }
 
-function parseMeta(metadata?: string): {
-  ejercicio?: number;
-  cliente?: string;
-  parseError?: string;
-  erroresParseo?: string[];
-} {
+function parseMeta(metadata?: string): DocMeta {
   if (!metadata) return {};
   try {
     return JSON.parse(metadata);
