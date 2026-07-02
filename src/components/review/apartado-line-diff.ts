@@ -218,9 +218,12 @@ function flattenSegments(segs: MemoriaSegment[]): FlatUnit[] {
 function unitsMatch(a: FlatUnit, b: FlatUnit): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === "text" && b.kind === "text") return blocksMatch(a.content, b.content);
-  const ak = tablaContextoKey(a.segment);
-  const bk = tablaContextoKey(b.segment);
-  return ak.length > 0 && ak === bk;
+  if (a.kind === "table" && b.kind === "table") {
+    const ak = tablaContextoKey(a.segment);
+    const bk = tablaContextoKey(b.segment);
+    return ak.length > 0 && ak === bk;
+  }
+  return false;
 }
 
 function compareUnitPair(p: FlatUnit, c: FlatUnit): ComparedBlock[] {

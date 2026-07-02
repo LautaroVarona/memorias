@@ -121,7 +121,7 @@ function memoriaToMemoryBlock(
 ): CaseData["memory"] {
   const ejercicio = memoria.datosClave?.ejercicio ?? ejercicioRef;
   let tablasAncladas = anclarTablasAMemoria(memoria.tablas ?? [], ejercicioRef);
-  tablasAncladas = marcarEstructurasTablasDiferentes(tablasAncladas, tablasReferencia);
+  tablasAncladas = marcarEstructurasTablasDiferentes(tablasAncladas);
 
   // Estructura 100 % Word: apartados, tablas, texto y cifras provienen del parseo de la memoria.
   return {

@@ -738,10 +738,7 @@ export function extraerEtiquetasFilasTabla(cabecera: string[], filas: string[][]
 }
 
 /** Enriquece tablas con etiquetas normalizadas de fila (sin marcarlas como no comparables). */
-export function marcarEstructurasTablasDiferentes(
-  tablas: TablaMemoria[],
-  _tablasReferencia?: TablaMemoria[]
-): TablaMemoria[] {
+export function marcarEstructurasTablasDiferentes(tablas: TablaMemoria[]): TablaMemoria[] {
   return tablas.map((tabla) => ({
     ...tabla,
     etiquetasFilas: extraerEtiquetasFilasTabla(tabla.cabecera, tabla.filas),
@@ -842,7 +839,7 @@ export function extraerTablasDesdeBloques(
     linea += celdas.length;
   }
 
-  return marcarEstructurasTablasDiferentes(tablas, tablasReferencia);
+  return marcarEstructurasTablasDiferentes(tablas);
 }
 
 /**
