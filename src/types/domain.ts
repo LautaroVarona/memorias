@@ -117,6 +117,12 @@ export interface TablaMemoria {
   alerta_extraccion?: boolean;
   /** Mensaje de error de parseo de esta tabla */
   errorParseo?: string;
+  /** Etiquetas normalizadas de la primera columna (filas de datos) */
+  etiquetasFilas?: string[];
+  /** La estructura de filas no coincide con la memoria del ejercicio anterior */
+  estructuraDiferente?: boolean;
+  /** No se debe forzar diff fila a fila frente al ejercicio anterior */
+  informacionNoComparable?: boolean;
   linea: number;
   pagina?: number;
 }

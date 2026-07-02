@@ -28,9 +28,10 @@ import {
   parsearLineaTabla,
   procesarBloqueTabla,
   serializarFilasTabla,
+  etiquetaFilaParaAlineacion,
 } from "./table-parser";
 import { validarTablaCriticaSiAplica, validarAnclajeTemporal, detectarFusionEnCabecera, indiceColumnaEjercicioEstricto } from "./schemas";
-import { normalizarTextoComparacionInteranual } from "@/lib/rules/helpers/text-normalize";
+import { normalizarTextoApartado, normalizarTextoComparacionInteranual } from "@/lib/rules/helpers/text-normalize";
 import type {
   ImporteVinculadasFila,
   VinculadasCategoria,
@@ -612,10 +613,156 @@ export function extraerApartadosDesdeBloques(bloques: MemoriaBloque[]): Apartado
   return apartados;
 }
 
+function lineaToPagina(texto: string, linea: number): number {
+  const fragmento = texto.split(/\n/).slice(0, Math.max(0, linea - 1)).join("\n");
+  return Math.max(1, (fragmento.match(/\f/g) || []).length + 1);
+}
+
+function celdaTieneContenido(celda: string): boolean {
+  const t = celda.trim();
+  if (!t) return false;
+  if (/^[-—–]$/.test(t)) return true;
+  if (/^(n\/?a|no aplica|s\.?d\.?|sin datos)$/i.test(t)) return true;
+  return /\d/.test(t);
+}
+
+function celdaTieneTextoSignificativo(celda: string): boolean {
+  const t = celda.trim();
+  if (!t) return false;
+  if (/^[-—–]$/.test(t)) return false;
+  if (/^(n\/?a|no aplica|s\.?d\.?|sin datos)$/i.test(t)) return true;
+  return t.length >= 2;
+}
+
+/** Cabeceras de tablas puramente descriptivas (sin importes). */
+const PATRON_TABLA_CUALITATIVA =
+  /\b(identificaci[oó]n|naturaleza(?:\s+de\s+la\s+relaci[oó]n)?|sociedad|domicilio|denominaci[oó]n|raz[oó]n\s+social|relaci[oó]n|vida\s+[uú]til|m[eé]todo\s+(de\s+)?amort)/i;
+
+const PATRON_CABECERA_NUMERICA_TABLA =
+  /\b(importe|saldo|euros?|cantidad|valor|20\d{2})\b/i;
+
+/**
+ * Tablas cualitativas (p. ej. identificación de partes vinculadas) no requieren
+ * cifras para considerarse con contenido válido.
+ */
+export function tablaEsCualitativa(cabecera: string[], datos: string[][] = []): boolean {
+  const textoCabecera = cabecera.join(" ");
+  if (PATRON_CABECERA_NUMERICA_TABLA.test(textoCabecera)) return false;
+  if (PATRON_TABLA_CUALITATIVA.test(textoCabecera)) return true;
+
+  if (datos.length > 0) {
+    const primeraFila = datos[0].join(" ");
+    if (PATRON_CABECERA_NUMERICA_TABLA.test(primeraFila)) return false;
+    if (PATRON_TABLA_CUALITATIVA.test(primeraFila)) return true;
+  }
+
+  return false;
+}
+
+function columnasDatosRelevantes(cabecera: string[]): number[] {
+  const importeCols: { idx: number; year: number }[] = [];
+  for (let i = 1; i < cabecera.length; i++) {
+    const m = cabecera[i].match(/IMPORTE\s+(20\d{2})/i);
+    if (m) importeCols.push({ idx: i, year: parseInt(m[1], 10) });
+  }
+  if (importeCols.length > 0) {
+    const masReciente = [...importeCols].sort((a, b) => b.year - a.year)[0];
+    return [masReciente.idx];
+  }
+  return cabecera.slice(1).map((_, idx) => idx + 1);
+}
+
+function tablaEstaVacia(cabecera: string[], datos: string[][], esTablaTexto?: boolean): boolean {
+  if (datos.length === 0) return false;
+
+  if (esTablaTexto || tablaEsCualitativa(cabecera, datos)) {
+    return !datos.some((fila) => fila.some((celda) => celdaTieneTextoSignificativo(celda)));
+  }
+
+  const cols = columnasDatosRelevantes(cabecera);
+  const dataCells = datos.flatMap((f) => cols.map((c) => f[c] ?? ""));
+  if (dataCells.length === 0) return false;
+  return dataCells.every((c) => !celdaTieneContenido(c));
+}
+
+/** Etiquetas normalizadas de la primera columna (filas de datos, sin cabecera). */
+export function extraerEtiquetasFilasTabla(cabecera: string[], filas: string[][]): string[] {
+  return filas
+    .map((fila) => etiquetaFilaParaAlineacion(fila, cabecera))
+    .filter((etiqueta) => etiqueta.length > 0);
+}
+
+function claveTablaComparacion(tabla: TablaMemoria): string {
+  const apartado = tabla.apartado?.replace(/\D/g, "").padStart(2, "0") ?? "";
+  const titulo = normalizarTextoComparacionInteranual(tabla.titulo ?? "");
+  const cabecera = normalizarTextoComparacionInteranual(tabla.cabecera.join(" "));
+  return `${apartado}|${titulo}|${cabecera}`;
+}
+
+/**
+ * Compara la estructura de dos tablas (número de filas y etiquetas de la 1ª columna).
+ * Si no coinciden, la comparación fila a fila no es fiable.
+ */
+export function estructurasTablaCompatibles(
+  tablaActual: Pick<TablaMemoria, "cabecera" | "filas">,
+  tablaReferencia: Pick<TablaMemoria, "cabecera" | "filas">
+): boolean {
+  const etiquetasActual = extraerEtiquetasFilasTabla(tablaActual.cabecera, tablaActual.filas);
+  const etiquetasReferencia = extraerEtiquetasFilasTabla(
+    tablaReferencia.cabecera,
+    tablaReferencia.filas
+  );
+
+  if (etiquetasActual.length !== etiquetasReferencia.length) return false;
+  return etiquetasActual.every((etiqueta, idx) => etiqueta === etiquetasReferencia[idx]);
+}
+
+/** Marca tablas cuya estructura difiere respecto a las del ejercicio anterior. */
+export function marcarEstructurasTablasDiferentes(
+  tablas: TablaMemoria[],
+  tablasReferencia?: TablaMemoria[]
+): TablaMemoria[] {
+  if (!tablasReferencia?.length) return tablas;
+
+  const indiceReferencia = new Map<string, TablaMemoria>();
+  for (const tabla of tablasReferencia) {
+    const clave = claveTablaComparacion(tabla);
+    if (!indiceReferencia.has(clave)) indiceReferencia.set(clave, tabla);
+  }
+
+  return tablas.map((tabla) => {
+    const etiquetasFilas = extraerEtiquetasFilasTabla(tabla.cabecera, tabla.filas);
+    const referencia = indiceReferencia.get(claveTablaComparacion(tabla));
+    if (!referencia) {
+      return { ...tabla, etiquetasFilas };
+    }
+
+    const compatible = estructurasTablaCompatibles(tabla, referencia);
+    if (compatible) {
+      return { ...tabla, etiquetasFilas };
+    }
+
+    return {
+      ...tabla,
+      etiquetasFilas,
+      estructuraDiferente: true,
+      informacionNoComparable: true,
+      errorParseo: tabla.errorParseo ?? "Información no comparable: estructura distinta al ejercicio anterior",
+    };
+  });
+}
+
+export interface ExtraerTablasOpciones {
+  ejercicioActual?: number;
+  /** Tablas del ejercicio anterior para detectar estructuras no comparables */
+  tablasReferencia?: TablaMemoria[];
+}
+
 export function extraerTablasDesdeBloques(
   bloques: MemoriaBloque[],
   textoCompletoFallback: string,
-  ejercicioActual?: number
+  ejercicioActual?: number,
+  tablasReferencia?: TablaMemoria[]
 ): TablaMemoria[] {
   const tablas: TablaMemoria[] = [];
   let apartadoActual: string | undefined;
@@ -699,87 +846,29 @@ export function extraerTablasDesdeBloques(
     linea += celdas.length;
   }
 
-  return tablas;
+  return marcarEstructurasTablasDiferentes(tablas, tablasReferencia);
 }
 
 /**
  * Extrae las tablas del texto normalizado (filas con celdas separadas por " | ").
+ * Si se pasan tablas del ejercicio anterior, marca las que tengan estructura distinta
+ * como no comparables (sin forzar alineación fila a fila).
  */
-function lineaToPagina(texto: string, linea: number): number {
-  const fragmento = texto.split(/\n/).slice(0, Math.max(0, linea - 1)).join("\n");
-  return Math.max(1, (fragmento.match(/\f/g) || []).length + 1);
-}
+export function extraerTablas(
+  texto: string,
+  ejercicioActualOrOpts?: number | ExtraerTablasOpciones
+): TablaMemoria[] {
+  const opts: ExtraerTablasOpciones =
+    typeof ejercicioActualOrOpts === "number" || ejercicioActualOrOpts === undefined
+      ? { ejercicioActual: ejercicioActualOrOpts }
+      : ejercicioActualOrOpts;
 
-function celdaTieneContenido(celda: string): boolean {
-  const t = celda.trim();
-  if (!t) return false;
-  if (/^[-—–]$/.test(t)) return true;
-  if (/^(n\/?a|no aplica|s\.?d\.?|sin datos)$/i.test(t)) return true;
-  return /\d/.test(t);
-}
-
-function celdaTieneTextoSignificativo(celda: string): boolean {
-  const t = celda.trim();
-  if (!t) return false;
-  if (/^[-—–]$/.test(t)) return false;
-  if (/^(n\/?a|no aplica|s\.?d\.?|sin datos)$/i.test(t)) return true;
-  return t.length >= 2;
-}
-
-/** Cabeceras de tablas puramente descriptivas (sin importes). */
-const PATRON_TABLA_CUALITATIVA =
-  /\b(identificaci[oó]n|naturaleza(?:\s+de\s+la\s+relaci[oó]n)?|sociedad|domicilio|denominaci[oó]n|raz[oó]n\s+social|relaci[oó]n|vida\s+[uú]til|m[eé]todo\s+(de\s+)?amort)/i;
-
-const PATRON_CABECERA_NUMERICA_TABLA =
-  /\b(importe|saldo|euros?|cantidad|valor|20\d{2})\b/i;
-
-/**
- * Tablas cualitativas (p. ej. identificación de partes vinculadas) no requieren
- * cifras para considerarse con contenido válido.
- */
-export function tablaEsCualitativa(cabecera: string[], datos: string[][] = []): boolean {
-  const textoCabecera = cabecera.join(" ");
-  if (PATRON_CABECERA_NUMERICA_TABLA.test(textoCabecera)) return false;
-  if (PATRON_TABLA_CUALITATIVA.test(textoCabecera)) return true;
-
-  if (datos.length > 0) {
-    const primeraFila = datos[0].join(" ");
-    if (PATRON_CABECERA_NUMERICA_TABLA.test(primeraFila)) return false;
-    if (PATRON_TABLA_CUALITATIVA.test(primeraFila)) return true;
-  }
-
-  return false;
-}
-
-function columnasDatosRelevantes(cabecera: string[]): number[] {
-  const importeCols: { idx: number; year: number }[] = [];
-  for (let i = 1; i < cabecera.length; i++) {
-    const m = cabecera[i].match(/IMPORTE\s+(20\d{2})/i);
-    if (m) importeCols.push({ idx: i, year: parseInt(m[1], 10) });
-  }
-  if (importeCols.length > 0) {
-    // Columna del ejercicio más reciente (IMPORTE 2025 antes que IMPORTE 2024)
-    const masReciente = [...importeCols].sort((a, b) => b.year - a.year)[0];
-    return [masReciente.idx];
-  }
-  return cabecera.slice(1).map((_, idx) => idx + 1);
-}
-
-function tablaEstaVacia(cabecera: string[], datos: string[][], esTablaTexto?: boolean): boolean {
-  if (datos.length === 0) return false;
-
-  if (esTablaTexto || tablaEsCualitativa(cabecera, datos)) {
-    return !datos.some((fila) => fila.some((celda) => celdaTieneTextoSignificativo(celda)));
-  }
-
-  const cols = columnasDatosRelevantes(cabecera);
-  const dataCells = datos.flatMap((f) => cols.map((c) => f[c] ?? ""));
-  if (dataCells.length === 0) return false;
-  return dataCells.every((c) => !celdaTieneContenido(c));
-}
-
-export function extraerTablas(texto: string, ejercicioActual?: number): TablaMemoria[] {
-  return extraerTablasDesdeBloques(segmentarBloquesDeTexto(texto), texto, ejercicioActual);
+  return extraerTablasDesdeBloques(
+    segmentarBloquesDeTexto(texto),
+    texto,
+    opts.ejercicioActual,
+    opts.tablasReferencia
+  );
 }
 
 const MESES: Record<string, number> = {
@@ -1210,6 +1299,65 @@ function extraerCifrasPropuestaDeTablas(
 export interface ExtraerPropuestaOpciones {
   documento?: DocumentoOrigen;
   ejercicio?: number;
+}
+
+export interface FilaAplicacionResultados {
+  etiqueta: string;
+  etiquetaNormalizada: string;
+  importeActual?: TrackingValue<number>;
+  importeColumnaAnterior?: TrackingValue<number>;
+}
+
+/** Filas de tablas de aplicación de resultados indexadas por etiqueta normalizada. */
+export function extraerFilasAplicacionResultados(
+  texto: string,
+  tablas: TablaMemoria[],
+  opts: ExtraerPropuestaOpciones = {}
+): FilaAplicacionResultados[] {
+  const documento = opts.documento ?? "memoria_actual";
+  const tablasPropuesta = localizarTablasPropuesta(texto, tablas);
+  const indice = new Map<string, FilaAplicacionResultados>();
+
+  for (const tabla of tablasPropuesta) {
+    const { actual: colActual, anterior: colAnterior } = columnasComparativasPorEjercicio(
+      tabla.cabecera,
+      opts.ejercicio
+    );
+    if (colActual === undefined) continue;
+
+    for (const fila of tabla.filas) {
+      const etiqueta = normalizarEtiquetaFila(fila[0] ?? "");
+      if (!etiqueta) continue;
+
+      const etiquetaNormalizada = normalizarTextoApartado(etiqueta)
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!etiquetaNormalizada) continue;
+
+      let registro = indice.get(etiquetaNormalizada);
+      if (!registro) {
+        registro = { etiqueta, etiquetaNormalizada };
+        indice.set(etiquetaNormalizada, registro);
+      }
+
+      const actual = extraerCeldaPropuesta(tabla, fila, etiqueta, colActual, documento, opts.ejercicio);
+      if (actual) registro.importeActual = actual;
+
+      if (colAnterior !== undefined) {
+        const anterior = extraerCeldaPropuesta(
+          tabla,
+          fila,
+          etiqueta,
+          colAnterior,
+          documento,
+          opts.ejercicio
+        );
+        if (anterior) registro.importeColumnaAnterior = anterior;
+      }
+    }
+  }
+
+  return [...indice.values()];
 }
 
 /** Extrae cifras del apartado de propuesta de aplicación (memoria Normal). */

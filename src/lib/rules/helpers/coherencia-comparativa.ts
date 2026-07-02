@@ -115,7 +115,7 @@ export function extraerCifrasEjercicio(
   >();
 
   for (const tabla of tablas) {
-    if (tabla.tabla_rota) continue;
+    if (tabla.tabla_rota || tabla.informacionNoComparable) continue;
 
     const col = encontrarColumnaEjercicio(tabla.cabecera, ejercicioObjetivo);
     if (col.indice === null) continue;
@@ -160,7 +160,7 @@ export function detectarDescuadresComparativa(
   const vistos = new Set<string>();
 
   for (const tabla of tablasActual) {
-    if (tabla.tabla_rota) continue;
+    if (tabla.tabla_rota || tabla.informacionNoComparable) continue;
 
     const col = encontrarColumnaEjercicio(tabla.cabecera, ejercicioAnterior);
     if (col.indice === null) continue;

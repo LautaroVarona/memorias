@@ -230,6 +230,9 @@ function classifyPair(prior: string, current: string): ComparedLine {
   if (p === c) {
     return { kind: "unchanged", prior: p, current: c };
   }
+  if (normalizarTextoComparacionInteranual(p) === normalizarTextoComparacionInteranual(c)) {
+    return { kind: "expected", prior: p, current: c };
+  }
   // Antes de equivalencias semánticas: si solo cambian años/cifras, mostrar cada lado
   // con su texto real (no colapsar en "unchanged" vía normalización interanual).
   if (isSoloCambioEsperado(p, c)) {

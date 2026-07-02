@@ -1,4 +1,4 @@
-import { parseImporte, detectarTablasAnunciadasAusentes, tablaEsCualitativa } from "@/lib/parsers/memoria/extractors";
+import { parseImporte, detectarTablasAnunciadasAusentes, tablaEsCualitativa, extraerFilasAplicacionResultados } from "@/lib/parsers/memoria/extractors";
 import { formatEuro } from "@/lib/rules/helpers/accounts";
 import { withEuro, withMemoryLocator, withText, fromTrackingValue } from "@/lib/rules/helpers/evidence";
 import { seniorExplanation, seniorExplanationPass } from "@/lib/rules/helpers/explanation";
@@ -10,6 +10,77 @@ import type { CalcisData, CuentaNormalizada, NotaDespacho } from "@/types/domain
 import type { TrackingValue } from "@/types/tracking";
 import type { RuleDefinition } from "../types";
 import { withinTolerance } from "../types";
+
+const TOLERANCIA_APLICACION_RESULTADOS = 0.01;
+
+interface FilaComparacionAplicacion {
+  etiqueta: string;
+  importeActual?: number;
+  importeColumnaAnterior?: number;
+  importeMemoriaAnterior?: number;
+  estado: "ok" | "error" | "sin_comparar";
+}
+
+function compararFilasAplicacionResultados(data: CaseData): FilaComparacionAplicacion[] {
+  const memoria = data.memory;
+  const prior = data.priorYear?.memory;
+  if (!memoria) return [];
+
+  const ejercicioActual = data.metadata.ejercicio;
+  const ejercicioAnterior = data.priorYear?.ejercicio;
+
+  const filasActual = extraerFilasAplicacionResultados(memoria.fullText, memoria.tables ?? [], {
+    documento: "memoria_actual",
+    ejercicio: ejercicioActual,
+  });
+  const filasAnterior =
+    prior && ejercicioAnterior !== undefined
+      ? extraerFilasAplicacionResultados(prior.fullText, prior.tables ?? [], {
+          documento: "memoria_anterior",
+          ejercicio: ejercicioAnterior,
+        })
+      : [];
+
+  const indiceAnterior = new Map(filasAnterior.map((f) => [f.etiquetaNormalizada, f]));
+  const resultado: FilaComparacionAplicacion[] = [];
+
+  for (const fila of filasActual) {
+    const ref = indiceAnterior.get(fila.etiquetaNormalizada);
+    const importeActual = unwrapValue(fila.importeActual);
+    const importeColumnaAnterior = unwrapValue(fila.importeColumnaAnterior);
+    const importeMemoriaAnterior = unwrapValue(ref?.importeActual);
+
+    if (!ref) {
+      resultado.push({
+        etiqueta: fila.etiqueta,
+        importeActual,
+        importeColumnaAnterior,
+        estado: "sin_comparar",
+      });
+      continue;
+    }
+
+    let estado: FilaComparacionAplicacion["estado"] = "ok";
+
+    if (
+      importeColumnaAnterior !== undefined &&
+      importeMemoriaAnterior !== undefined &&
+      !withinTolerance(importeColumnaAnterior, importeMemoriaAnterior, TOLERANCIA_APLICACION_RESULTADOS)
+    ) {
+      estado = "error";
+    }
+
+    resultado.push({
+      etiqueta: fila.etiqueta,
+      importeActual,
+      importeColumnaAnterior,
+      importeMemoriaAnterior,
+      estado,
+    });
+  }
+
+  return resultado;
+}
 
 /**
  * Reglas específicas del flujo real del despacho: libro de cierre .xlsm
@@ -855,6 +926,86 @@ export const cierreRules: RuleDefinition[] = [
       if (outcome.passed) return [];
       return ((outcome.data.faltantes as string[]) ?? []).map((f) =>
         withText("memory", "Dato ausente", f, "medium")
+      );
+    },
+  },
+  {
+    id: "CIERRE_011",
+    title: "Aplicación de resultados: coherencia interanual por partida",
+    type: "cross",
+    defaultSeverity: "error",
+    normativa: "PGC — propuesta de aplicación del resultado",
+    referencia: "Apartado 03 — tabla de aplicación de resultados",
+    execute(data) {
+      if (data.memory?.keyData.tipoMemoria !== "normal") {
+        return { passed: true, data: { skip: true, reason: "no_normal" } };
+      }
+
+      const propuesta = data.memory.propuestaAplicacion;
+      if (!propuesta?.tieneApartado) {
+        return { passed: true, data: { skip: true, reason: "sin_apartado" } };
+      }
+
+      if (!data.priorYear?.memory) {
+        return { passed: true, data: { skip: true, reason: "sin_memoria_anterior" } };
+      }
+
+      const filas = compararFilasAplicacionResultados(data);
+      if (filas.length === 0) {
+        return { passed: true, data: { skip: true, reason: "sin_filas", filas } };
+      }
+
+      const errores = filas.filter((f) => f.estado === "error");
+      const sinComparar = filas.filter((f) => f.estado === "sin_comparar");
+      const passed = errores.length === 0;
+
+      return {
+        passed,
+        severity: passed ? undefined : "error",
+        sugerencia: passed
+          ? undefined
+          : "Revise la columna comparativa de la tabla de aplicación de resultados frente a la memoria del ejercicio anterior.",
+        data: { filas, errores, sinComparar, passed },
+      };
+    },
+    explanation(outcome) {
+      if (outcome.data.skip) {
+        return seniorExplanationPass("Regla no aplicable o sin datos para comparar la aplicación de resultados.");
+      }
+      if (outcome.passed) {
+        const sinComparar = (outcome.data.sinComparar as FilaComparacionAplicacion[]) ?? [];
+        const detalle =
+          sinComparar.length > 0
+            ? ` ${sinComparar.length} partida(s) nueva(s) quedaron sin comparar.`
+            : "";
+        return seniorExplanationPass(
+          `La tabla de aplicación de resultados es coherente con la memoria del ejercicio anterior.${detalle}`
+        );
+      }
+
+      const errores = (outcome.data.errores as FilaComparacionAplicacion[]) ?? [];
+      const detalle = errores
+        .map(
+          (f) =>
+            `${f.etiqueta}: columna anterior ${formatEuro(f.importeColumnaAnterior ?? 0)} ≠ memoria anterior ${formatEuro(f.importeMemoriaAnterior ?? 0)}`
+        )
+        .join("; ");
+
+      return seniorExplanation(
+        `Descuadres en la aplicación de resultados: ${detalle}.`,
+        "La columna del ejercicio anterior debe reproducir las cifras publicadas en la memoria del año previo para cada partida comparable.",
+        outcome.sugerencia ?? "Actualice la tabla del apartado 03 o regenere la memoria desde A3SOC."
+      );
+    },
+    evidence(outcome) {
+      if (outcome.passed || outcome.data.skip) return [];
+      return ((outcome.data.errores as FilaComparacionAplicacion[]) ?? []).map((f) =>
+        withEuro(
+          "memory",
+          `Aplicación de resultados — ${f.etiqueta}`,
+          f.importeColumnaAnterior ?? 0,
+          "high"
+        )
       );
     },
   },

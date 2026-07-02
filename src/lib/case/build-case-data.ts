@@ -6,7 +6,7 @@ import type {
   MemoriaNormalizada,
   TipoEmpresa,
 } from "@/types/domain";
-import { extraerPropuestaAplicacion, extraerVinculadas } from "@/lib/parsers/memoria/extractors";
+import { extraerPropuestaAplicacion, extraerVinculadas, marcarEstructurasTablasDiferentes } from "@/lib/parsers/memoria/extractors";
 import { validarAnclajeTemporal } from "@/lib/parsers/memoria/schemas";
 import type { TablaMemoria } from "@/types/domain";
 import { mapCalcisReservaTracked } from "@/lib/tracking/excel";
@@ -116,10 +116,12 @@ export interface BuildCaseDataInput {
 
 function memoriaToMemoryBlock(
   memoria: MemoriaNormalizada,
-  ejercicioRef: number
+  ejercicioRef: number,
+  tablasReferencia?: TablaMemoria[]
 ): CaseData["memory"] {
   const ejercicio = memoria.datosClave?.ejercicio ?? ejercicioRef;
-  const tablasAncladas = anclarTablasAMemoria(memoria.tablas ?? [], ejercicioRef);
+  let tablasAncladas = anclarTablasAMemoria(memoria.tablas ?? [], ejercicioRef);
+  tablasAncladas = marcarEstructurasTablasDiferentes(tablasAncladas, tablasReferencia);
 
   // Estructura 100 % Word: apartados, tablas, texto y cifras provienen del parseo de la memoria.
   return {
@@ -207,7 +209,10 @@ export function buildCaseData(input: BuildCaseDataInput): CaseData {
 
 
   if (input.memoria) {
-    data.memory = memoriaToMemoryBlock(input.memoria, input.ejercicio);
+    const tablasReferencia = input.priorYear?.memoria?.tablas
+      ? anclarTablasAMemoria(input.priorYear.memoria.tablas, input.priorYear.ejercicio)
+      : undefined;
+    data.memory = memoriaToMemoryBlock(input.memoria, input.ejercicio, tablasReferencia);
 
     const memoriaYear = input.memoria.datosClave?.ejercicio;
 

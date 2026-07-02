@@ -9,6 +9,9 @@ export const UMBRAL_REDUCCION_TEXTO_APARTADO = 0.5;
 const MESES_ES =
   "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre";
 
+/** Token genérico que sustituye años 19xx/20xx antes de comparar textos entre ejercicios. */
+export const YEAR_COMPARISON_TOKEN = "{{YEAR}}";
+
 /**
  * Normaliza texto para comparación interanual ignorando años, fechas e importes.
  * Dos memorias consecutivas suelen diferir solo en cifras y ejercicios; eso no es un error.
@@ -30,11 +33,11 @@ export function normalizarTextoComparacionInteranual(texto: string): string {
   return normalizarTextoApartado(normalizarMarcadoresLista(texto))
     .replace(
       new RegExp(`\\b\\d{1,2}\\s+de\\s+(?:${MESES_ES})\\s+de\\s+\\d{4}\\b`, "gi"),
-      " "
+      YEAR_COMPARISON_TOKEN
     )
-    .replace(/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\b/g, " ")
+    .replace(/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\b/g, YEAR_COMPARISON_TOKEN)
     .replace(/\ba\s+31\s+de\s+diciembre\b/g, " ")
-    .replace(/\b(?:19|20)\d{2}\b/g, " ")
+    .replace(/\b(?:19|20)\d{2}\b/g, YEAR_COMPARISON_TOKEN)
     .replace(/\d[\d.,\s]*(?:€|eur(?:os?)?)?/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
