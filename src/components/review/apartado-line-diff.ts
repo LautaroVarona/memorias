@@ -186,6 +186,10 @@ function tablaContextoKey(seg?: MemoriaSegment): string {
     .join("+");
 }
 
+function segmentoTextoVacio(seg: MemoriaSegment): boolean {
+  return seg.type === "text" && !seg.content.trim();
+}
+
 function segmentKey(seg: MemoriaSegment, index: number, segments: MemoriaSegment[]): string {
   if (seg.type === "text") {
     const base = normalizarTextoComparacionInteranual(seg.content).slice(0, 240);
@@ -473,13 +477,8 @@ function compareChangedRun(
   let pi = 0;
   let ci = 0;
   while (pi < priorRun.length || ci < currentRun.length) {
-    while (pi < priorRun.length && priorRun[pi].type === "text" && !priorRun[pi].content.trim()) pi++;
-    while (
-      ci < currentRun.length &&
-      currentRun[ci].type === "text" &&
-      !currentRun[ci].content.trim()
-    )
-      ci++;
+    while (pi < priorRun.length && segmentoTextoVacio(priorRun[pi])) pi++;
+    while (ci < currentRun.length && segmentoTextoVacio(currentRun[ci])) ci++;
 
     const p = pi < priorRun.length ? priorRun[pi] : null;
     const c = ci < currentRun.length ? currentRun[ci] : null;

@@ -3,7 +3,6 @@ import { estructurasTablaCompatibles } from "@/lib/parsers/memoria/extractors";
 import { etiquetaFilaParaAlineacion, colapsarColumnaNifVacia } from "@/lib/parsers/memoria/table-parser";
 import { compareWithTolerance } from "@/lib/rules/helpers/accounts";
 import { celdaImporteTieneValor } from "@/lib/rules/helpers/tablas-interanual";
-import { normalizarTextoApartado } from "@/lib/rules/helpers/text-normalize";
 import type { LineDiffKind } from "./apartado-line-diff";
 import { parseTableRow } from "./parse-pipe-table";
 
@@ -39,13 +38,6 @@ export function limpiarCeldaTabla(cell: string): string {
     .replace(/\u00a0/g, " ")
     .replace(/[ \t]+/g, " ")
     .replace(/\s+-\s*\d{1,4}\s*-\s*$/g, "")
-    .trim();
-}
-
-function normalizarEtiquetaFila(label: string): string {
-  return normalizarTextoApartado(label)
-    .replace(/\bimporte\s+20\d{2}\b/g, "")
-    .replace(/\s+/g, " ")
     .trim();
 }
 
