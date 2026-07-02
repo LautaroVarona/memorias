@@ -23,6 +23,7 @@ import {
   filasTablaListaAVertical,
   alinearFilaAlAnchoCabecera,
   fusionarEtiquetaEnCeldas,
+  introInterrumpeCabeceraTabla,
   limpiarValorCelda,
   pareceEtiquetaFilaSuelta,
   pareceTextoIntroductorioTabla,
@@ -30,6 +31,7 @@ import {
   procesarBloqueTabla,
   serializarFilasTabla,
   etiquetaFilaParaAlineacion,
+  tablasParecenMismaTablaPartida,
 } from "./table-parser";
 import { validarTablaCriticaSiAplica, validarAnclajeTemporal, detectarFusionEnCabecera, indiceColumnaEjercicioEstricto } from "./schemas";
 import { normalizarTextoApartado, normalizarTextoComparacionInteranual } from "@/lib/rules/helpers/text-normalize";
@@ -486,6 +488,12 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
 
       tabla.push(cells);
     } else {
+      if (linea && introInterrumpeCabeceraTabla(linea, tabla)) {
+        textBuffer.push(linea);
+        flushText();
+        continue;
+      }
+
       if (linea && tabla.length > 0 && pareceEtiquetaFilaSuelta(linea)) {
         const ancho = tabla[0].length;
         const fila = alinearFilaAlAnchoCabecera([linea], ancho);
@@ -509,7 +517,60 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
 
   flushTabla();
   flushText();
-  return corregirOrdenIntroductorioTabla(bloques);
+  return fusionarTablasPartidas(corregirOrdenIntroductorioTabla(bloques));
+}
+
+function fusionarBloquesTabla(a: MemoriaTableBlock, b: MemoriaTableBlock): MemoriaTableBlock {
+  const filas = [...filasCeldasDeTabla(a.rows), ...filasCeldasDeTabla(b.rows)];
+  return crearBloqueTabla(filas);
+}
+
+/**
+ * Repara tablas partidas: Word binario a veces emite [cabecera] [intro] [datos]
+ * como tres bloques; aquí se fusionan en [intro][tabla completa].
+ */
+export function fusionarTablasPartidas(bloques: MemoriaBloque[]): MemoriaBloque[] {
+  const out: MemoriaBloque[] = [];
+  let i = 0;
+
+  while (i < bloques.length) {
+    const actual = bloques[i];
+    const siguiente = bloques[i + 1];
+    const tercero = bloques[i + 2];
+
+    if (
+      actual?.type === "table" &&
+      siguiente?.type === "text" &&
+      textoEsIntroductorioDeTabla(siguiente.content) &&
+      tercero?.type === "table" &&
+      tablasParecenMismaTablaPartida(
+        filasCeldasDeTabla(actual.rows),
+        filasCeldasDeTabla(tercero.rows)
+      )
+    ) {
+      out.push(siguiente, fusionarBloquesTabla(actual, tercero));
+      i += 3;
+      continue;
+    }
+
+    if (
+      actual?.type === "table" &&
+      siguiente?.type === "table" &&
+      tablasParecenMismaTablaPartida(
+        filasCeldasDeTabla(actual.rows),
+        filasCeldasDeTabla(siguiente.rows)
+      )
+    ) {
+      out.push(fusionarBloquesTabla(actual, siguiente));
+      i += 2;
+      continue;
+    }
+
+    out.push(actual!);
+    i += 1;
+  }
+
+  return out;
 }
 
 /**

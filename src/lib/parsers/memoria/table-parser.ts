@@ -205,6 +205,9 @@ export function pareceTextoIntroductorioTabla(linea: string): boolean {
   ) {
     return true;
   }
+  if (/\bel importe total\b/i.test(t)) return true;
+  if (/\b(son|es)\s+los?\s+siguientes?\b/i.test(t)) return true;
+  if (/\bactivos financieros\b/i.test(t) && /:\s*$/.test(t)) return true;
   if (/\.\s*$/.test(t) && t.length >= 25) return true;
   if (/\b(de la|de las|de los|del ejercicio|en el ejercicio|los siguientes)\b/i.test(t) && t.length >= 20) {
     return true;
@@ -265,6 +268,38 @@ export function esCabeceraTituloTabla(cells: string[]): boolean {
 
 export function esCabeceraTabla(cells: string[]): boolean {
   return esCabeceraAnual(cells) || esCabeceraTituloTabla(cells);
+}
+
+/** La tabla solo tiene fila de cabecera/título (sin filas de datos aún). */
+export function tablaSoloTieneCabecera(tabla: string[][]): boolean {
+  if (tabla.length !== 1) return false;
+  const row = tabla[0] ?? [];
+  return esCabeceraTabla(row) || esCabeceraTituloTabla(row);
+}
+
+/**
+ * Word binario A3SOC a veces intercala el párrafo introductorio entre la cabecera
+ * titular y las filas de datos de la misma tabla.
+ */
+export function introInterrumpeCabeceraTabla(linea: string, tabla: string[][]): boolean {
+  const t = limpiarValorCelda(linea);
+  if (!t || tabla.length === 0) return false;
+  return pareceTextoIntroductorioTabla(t) && tablaSoloTieneCabecera(tabla);
+}
+
+/** Segunda parte de una tabla partida (cabecera titular + filas de datos separadas). */
+export function tablasParecenMismaTablaPartida(cabecera: string[][], cuerpo: string[][]): boolean {
+  if (!tablaSoloTieneCabecera(cabecera) || cuerpo.length === 0) return false;
+  const ancho = cabecera[0]?.length ?? 0;
+  if (ancho < 2) return false;
+  const primeraCuerpo = cuerpo[0] ?? [];
+  if (
+    esCabeceraTabla(primeraCuerpo) &&
+    normalizarCabecera(primeraCuerpo) === normalizarCabecera(cabecera[0] ?? [])
+  ) {
+    return false;
+  }
+  return cuerpo.every((fila) => fila.length <= ancho + 1);
 }
 
 /**

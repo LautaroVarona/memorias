@@ -112,4 +112,17 @@ const invertido = [
 ].join("\n");
 assertTextBeforeTable(invertido, "No ha habido movimientos", "reorden concesiones");
 
-console.log("OK: segment order tests passed (" + (casos.length + 1) + " casos)");
+// Word binario: cabecera titular, intro en medio, filas de datos (tabla partida)
+const introLP = "El importe total de los activos financieros a largo plazo es:";
+const headerInst = "INSTRUMENTOS DE PATRIMONIO LP | IMPORTE 2025 | IMPORTE 2024";
+const filaDatos = "Saldo final | 1.234,56 | 1.000,00";
+const rawPartido = [headerInst, introLP, filaDatos].join("\n");
+const segsPartido = segmentMemoriaContent(rawPartido);
+assert.equal(segsPartido[0]?.type, "text", "intro LP antes de tabla");
+assert(segsPartido[0]?.type === "text" && segsPartido[0].content.includes("importe total"));
+assert.equal(segsPartido[1]?.type, "table", "tabla fusionada tras intro");
+if (segsPartido[1]?.type === "table") {
+  assert(segsPartido[1].rows.length >= 2, "tabla con cabecera y al menos una fila de datos");
+}
+
+console.log("OK: segment order tests passed (" + (casos.length + 2) + " casos)");

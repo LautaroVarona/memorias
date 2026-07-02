@@ -187,11 +187,18 @@ function splitTextBlocks(text: string): string[] {
 function tablaContextoKey(seg?: MemoriaSegment): string {
   if (!seg || seg.type !== "table") return "";
   const header = seg.cabecera ?? seg.rows[0]?.cells ?? [];
-  return header
+  const titulo = normalizarTextoComparacionInteranual(header[0] ?? "").slice(0, 80);
+  const headerKey = header
     .map((c) => normalizarTextoComparacionInteranual(c))
     .filter((c) => c.length > 0)
     .slice(0, 3)
     .join("+");
+  const dataRows = seg.rows.length > 1 ? seg.rows.slice(1) : [];
+  const primeraEtiqueta =
+    dataRows
+      .map((r) => normalizarTextoComparacionInteranual(r.cells[0] ?? ""))
+      .find((l) => l.length >= 3) ?? "";
+  return `tbl:${titulo}::${headerKey}::${primeraEtiqueta}`;
 }
 
 type FlatTextUnit = { kind: "text"; content: string };

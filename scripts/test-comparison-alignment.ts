@@ -84,4 +84,38 @@ assert(
   "el intro de instalaciones no debe ser ruptura"
 );
 
+// Caso activos financieros LP: Word 2025 vuelca cabecera, intro y datos separados
+const introLP = "El importe total de los activos financieros a largo plazo es:";
+const introCP = "Los activos financieros a corto plazo son los siguientes:";
+const hInst = "INSTRUMENTOS DE PATRIMONIO LP | IMPORTE 2025 | IMPORTE 2024";
+const hCred = "CRÉDITOS, DERIVADOS Y OTROS LP | IMPORTE 2025 | IMPORTE 2024";
+const hTotal = "TOTAL ACTIVOS FINANCIEROS LP | IMPORTE 2025 | IMPORTE 2024";
+const fila = "Saldo final | 100,00 | 90,00";
+
+function bloquePartido2025(header: string) {
+  return [header, introLP, fila].join("\n");
+}
+function bloqueCorrecto2024(header: string, intro: string) {
+  return [intro, header, fila].join("\n\n");
+}
+
+const priorFin = [
+  bloqueCorrecto2024(hInst.replace(/2025/g, "2024").replace(/2024/g, "2023"), introLP),
+  bloqueCorrecto2024(hCred.replace(/2025/g, "2024").replace(/2024/g, "2023"), introLP),
+  bloqueCorrecto2024(hTotal.replace(/2025/g, "2024").replace(/2024/g, "2023"), introCP),
+].join("\n\n");
+
+const currentFin = [bloquePartido2025(hInst), bloquePartido2025(hCred), bloquePartido2025(hTotal)].join(
+  "\n\n"
+);
+
+const diffFin = buildContentComparison(priorFin, currentFin);
+const tablasVacias = diffFin.filter(
+  (b) =>
+    b.type === "table" &&
+    b.table.rows.every((r) => !r.prior?.length && r.current?.length) &&
+    b.table.priorHeader.length === 0
+);
+assert.equal(tablasVacias.length, 0, "no debe haber tablas vacías en el lado 2024");
+
 console.log("OK: comparison alignment tests passed");

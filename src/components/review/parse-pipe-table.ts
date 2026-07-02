@@ -6,11 +6,13 @@ import {
   esTablaListaPseudo,
   filasTablaListaAVertical,
   fusionarEtiquetaEnCeldas,
+  introInterrumpeCabeceraTabla,
   limpiarValorCelda,
   pareceEtiquetaFilaSuelta,
   pareceTextoIntroductorioTabla,
   parsearLineaTabla,
   procesarBloqueTabla,
+  tablasParecenMismaTablaPartida,
 } from "@/lib/parsers/memoria/table-parser";
 import type { MemoriaTableRow } from "@/types/domain";
 
@@ -39,6 +41,68 @@ function textoEsIntroductorioDeTabla(content: string): boolean {
   );
 }
 
+function fusionarSegmentosTabla(
+  a: Extract<MemoriaSegment, { type: "table" }>,
+  b: Extract<MemoriaSegment, { type: "table" }>
+): Extract<MemoriaSegment, { type: "table" }> {
+  const filas = [
+    ...a.rows.map((r) => r.cells),
+    ...b.rows.map((r) => r.cells),
+  ];
+  const { rows, meta } = procesarBloqueTabla(filas);
+  return {
+    type: "table",
+    rows,
+    cabecera: meta.cabecera,
+    esComparativaAnual: meta.esComparativaAnual,
+    esTablaTexto: meta.esTablaTexto,
+  };
+}
+
+function fusionarSegmentosTablaPartida(segments: MemoriaSegment[]): MemoriaSegment[] {
+  const out: MemoriaSegment[] = [];
+  let i = 0;
+
+  while (i < segments.length) {
+    const actual = segments[i];
+    const siguiente = segments[i + 1];
+    const tercero = segments[i + 2];
+
+    if (
+      actual?.type === "table" &&
+      siguiente?.type === "text" &&
+      textoEsIntroductorioDeTabla(siguiente.content) &&
+      tercero?.type === "table" &&
+      tablasParecenMismaTablaPartida(
+        actual.rows.map((r) => r.cells),
+        tercero.rows.map((r) => r.cells)
+      )
+    ) {
+      out.push(siguiente, fusionarSegmentosTabla(actual, tercero));
+      i += 3;
+      continue;
+    }
+
+    if (
+      actual?.type === "table" &&
+      siguiente?.type === "table" &&
+      tablasParecenMismaTablaPartida(
+        actual.rows.map((r) => r.cells),
+        siguiente.rows.map((r) => r.cells)
+      )
+    ) {
+      out.push(fusionarSegmentosTabla(actual, siguiente));
+      i += 2;
+      continue;
+    }
+
+    out.push(actual!);
+    i += 1;
+  }
+
+  return out;
+}
+
 function corregirOrdenIntroductorioSegmentos(segments: MemoriaSegment[]): MemoriaSegment[] {
   const out: MemoriaSegment[] = [];
   let i = 0;
@@ -46,7 +110,7 @@ function corregirOrdenIntroductorioSegmentos(segments: MemoriaSegment[]): Memori
     const actual = segments[i];
     const siguiente = segments[i + 1];
     if (
-      actual.type === "table" &&
+      actual?.type === "table" &&
       siguiente?.type === "text" &&
       textoEsIntroductorioDeTabla(siguiente.content)
     ) {
@@ -54,7 +118,7 @@ function corregirOrdenIntroductorioSegmentos(segments: MemoriaSegment[]): Memori
       i += 2;
       continue;
     }
-    out.push(actual);
+    out.push(actual!);
     i += 1;
   }
   return out;
@@ -126,6 +190,12 @@ export function segmentMemoriaContent(text: string): MemoriaSegment[] {
       tableBuffer.push(cells);
     } else {
       const trimmed = line.trim();
+      if (trimmed && introInterrumpeCabeceraTabla(trimmed, tableBuffer)) {
+        textBuffer.push(trimmed);
+        flushText();
+        continue;
+      }
+
       if (trimmed && tableBuffer.length > 0 && pareceEtiquetaFilaSuelta(trimmed)) {
         const ancho = tableBuffer[0].length;
         tableBuffer.push(
@@ -148,7 +218,7 @@ export function segmentMemoriaContent(text: string): MemoriaSegment[] {
 
   flushTable();
   flushText();
-  return corregirOrdenIntroductorioSegmentos(segments);
+  return fusionarSegmentosTablaPartida(corregirOrdenIntroductorioSegmentos(segments));
 }
 
 /** Convierte filas enriquecidas a matriz plana (p. ej. para diff). */
