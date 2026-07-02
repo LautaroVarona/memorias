@@ -192,15 +192,21 @@ export function pareceTextoIntroductorioTabla(linea: string): boolean {
   if (!t) return false;
   if (/:\s*$/.test(t)) return true;
   if (
-    /\b(a continuaci[oó]n|se detallan?|es el siguiente|no ha habido|a fecha de|propuesta de)\b/i.test(
+    /\b(a continuaci[oó]n|se detallan?|es el siguiente|no ha habido|a fecha de|propuesta de|durante el ejercicio|ha sido el siguiente|presenta,?\s+durante)\b/i.test(
       t
     )
   ) {
     return true;
   }
-  if (/\b(composici[oó]n de|importe neto|cifra de negocios)\b/i.test(t)) return true;
+  if (
+    /\b(composici[oó]n de|importe neto|cifra de negocios|detalle por elementos|movimiento de la amortizaci[oó]n|movimientos? de la)\b/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
   if (/\.\s*$/.test(t) && t.length >= 25) return true;
-  if (/\b(de la|de las|de los|del ejercicio|en el ejercicio)\b/i.test(t) && t.length >= 20) {
+  if (/\b(de la|de las|de los|del ejercicio|en el ejercicio|los siguientes)\b/i.test(t) && t.length >= 20) {
     return true;
   }
   return false;

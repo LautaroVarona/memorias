@@ -9,7 +9,6 @@ import {
   type ComparedTable,
 } from "./apartado-table-diff";
 import { segmentMemoriaContent, type MemoriaSegment } from "./parse-pipe-table";
-import { etiquetaFilaParaAlineacion, pareceTextoIntroductorioTabla } from "@/lib/parsers/memoria/table-parser";
 import {
   agruparLineasEnParrafos,
   claveSemanticaBloque,
@@ -71,29 +70,33 @@ function blocksMatch(a: string, b: string): boolean {
   return false;
 }
 
-/** Alineación LCS: empareja bloques idénticos o equivalentes (solo cambian cifras/años). */
-function diffBlocks(oldArr: string[], newArr: string[]): ArrayDiffChunk<string>[] {
+/** Alineación LCS genérica: empareja elementos idénticos o equivalentes. */
+function diffArrays<T>(
+  oldArr: T[],
+  newArr: T[],
+  match: (a: T, b: T) => boolean
+): ArrayDiffChunk<T>[] {
   const n = oldArr.length;
   const m = newArr.length;
   const dp = Array.from({ length: n + 1 }, () => Array<number>(m + 1).fill(0));
 
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      dp[i][j] = blocksMatch(oldArr[i], newArr[j])
+      dp[i][j] = match(oldArr[i], newArr[j])
         ? dp[i + 1][j + 1] + 1
         : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
 
-  const changes: ArrayDiffChunk<string>[] = [];
+  const changes: ArrayDiffChunk<T>[] = [];
   let i = 0;
   let j = 0;
 
   while (i < n || j < m) {
-    if (i < n && j < m && blocksMatch(oldArr[i], newArr[j])) {
-      const priorRun: string[] = [];
-      const currentRun: string[] = [];
-      while (i < n && j < m && blocksMatch(oldArr[i], newArr[j])) {
+    if (i < n && j < m && match(oldArr[i], newArr[j])) {
+      const priorRun: T[] = [];
+      const currentRun: T[] = [];
+      while (i < n && j < m && match(oldArr[i], newArr[j])) {
         priorRun.push(oldArr[i]);
         currentRun.push(newArr[j]);
         i++;
@@ -110,6 +113,11 @@ function diffBlocks(oldArr: string[], newArr: string[]): ArrayDiffChunk<string>[
   }
 
   return changes;
+}
+
+/** Alineación LCS: empareja bloques idénticos o equivalentes (solo cambian cifras/años). */
+function diffBlocks(oldArr: string[], newArr: string[]): ArrayDiffChunk<string>[] {
+  return diffArrays(oldArr, newArr, blocksMatch);
 }
 
 /** Cambio solo de cifras o años (curso lectivo), no de redacción. */
@@ -186,51 +194,124 @@ function tablaContextoKey(seg?: MemoriaSegment): string {
     .join("+");
 }
 
-function segmentoTextoVacio(seg: MemoriaSegment): boolean {
-  return seg.type === "text" && !seg.content.trim();
+type FlatTextUnit = { kind: "text"; content: string };
+type FlatTableUnit = { kind: "table"; segment: Extract<MemoriaSegment, { type: "table" }> };
+type FlatUnit = FlatTextUnit | FlatTableUnit;
+
+/** Descompone segmentos en párrafos y tablas atómicos para alinear memorias con inserciones intermedias. */
+function flattenSegments(segs: MemoriaSegment[]): FlatUnit[] {
+  const units: FlatUnit[] = [];
+  for (const seg of segs) {
+    if (seg.type === "table") {
+      if (seg.rows.length === 0) continue;
+      units.push({ kind: "table", segment: seg });
+      continue;
+    }
+    const paras = splitTextBlocks(seg.content);
+    for (const content of paras) {
+      if (content.trim()) units.push({ kind: "text", content });
+    }
+  }
+  return units;
 }
 
-function segmentKey(seg: MemoriaSegment, index: number, segments: MemoriaSegment[]): string {
-  if (seg.type === "text") {
-    const base = normalizarTextoComparacionInteranual(seg.content).slice(0, 240);
-    const textoCortoOGenerico =
-      base.length <= 160 ||
-      /a continuaci[oó]n se detalla/i.test(base) ||
-      /se muestran a continuaci[oó]n/i.test(base) ||
-      /:\s*$/.test(base);
-    if (textoCortoOGenerico || pareceTextoIntroductorioTabla(seg.content)) {
-      // Los párrafos que introducen una tabla deben alinearse por redacción,
-      // no por si Word los volcó antes o después de la misma tabla.
-      if (pareceTextoIntroductorioTabla(seg.content) || /:\s*$/.test(seg.content.trim())) {
-        return `t:${base}`;
-      }
-      const prevTabla = tablaContextoKey(segments[index - 1]);
-      const nextTabla = tablaContextoKey(segments[index + 1]);
-      if (prevTabla || nextTabla) {
-        return `t:${base}::ctx:${prevTabla}>${nextTabla}`;
+function unitsMatch(a: FlatUnit, b: FlatUnit): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "text" && b.kind === "text") return blocksMatch(a.content, b.content);
+  const ak = tablaContextoKey(a.segment);
+  const bk = tablaContextoKey(b.segment);
+  return ak.length > 0 && ak === bk;
+}
+
+function compareUnitPair(p: FlatUnit, c: FlatUnit): ComparedBlock[] {
+  if (p.kind === "table" && c.kind === "table") {
+    return [
+      {
+        type: "table",
+        table: buildTableComparison(tableSegmentToText(p.segment), tableSegmentToText(c.segment)),
+      },
+    ];
+  }
+  if (p.kind === "text" && c.kind === "text") {
+    return [{ type: "text", line: classifyPair(p.content, c.content) }];
+  }
+  return pairTextBlocks(
+    [p.kind === "text" ? p.content : tableSegmentToText(p.segment)],
+    [c.kind === "text" ? c.content : tableSegmentToText(c.segment)]
+  );
+}
+
+function unitToRemoved(u: FlatUnit): ComparedBlock {
+  if (u.kind === "table") {
+    return { type: "table", table: buildTableComparison(tableSegmentToText(u.segment), "") };
+  }
+  return { type: "text", line: { kind: "removed", prior: u.content, current: "" } };
+}
+
+function unitToAdded(u: FlatUnit): ComparedBlock {
+  if (u.kind === "table") {
+    return { type: "table", table: buildTableComparison("", tableSegmentToText(u.segment)) };
+  }
+  return { type: "text", line: { kind: "added", prior: "", current: u.content } };
+}
+
+/** Reempareja unidades no alineadas por LCS buscando coincidencias semánticas (párrafos idénticos desplazados). */
+function pairUnmatchedUnits(removed: FlatUnit[], added: FlatUnit[]): ComparedBlock[] {
+  const out: ComparedBlock[] = [];
+  const usedAdded = new Set<number>();
+
+  for (const r of removed) {
+    let matchIdx = -1;
+    for (let j = 0; j < added.length; j++) {
+      if (usedAdded.has(j)) continue;
+      if (unitsMatch(r, added[j]!)) {
+        matchIdx = j;
+        break;
       }
     }
-    return `t:${base}`;
+    if (matchIdx >= 0) {
+      usedAdded.add(matchIdx);
+      out.push(...compareUnitPair(r, added[matchIdx]!));
+    } else {
+      out.push(unitToRemoved(r));
+    }
   }
-  const header = seg.cabecera ?? seg.rows[0]?.cells ?? [];
-  const dataRows = seg.rows.length > 1 ? seg.rows.slice(1) : seg.rows;
-  const labels = dataRows
-    .slice(0, 8)
-    .map((r) =>
-      normalizarTextoComparacionInteranual(etiquetaFilaParaAlineacion(r.cells, header))
-    )
-    .filter((l) => l.length > 0)
-    .join("|");
-  const headerKey = header
-    .map((c) => normalizarTextoComparacionInteranual(c))
-    .filter((c) => c.length > 0)
-    .slice(0, 4)
-    .join("+");
-  return `tbl:${headerKey}::${labels}`;
+
+  for (let j = 0; j < added.length; j++) {
+    if (!usedAdded.has(j)) out.push(unitToAdded(added[j]!));
+  }
+
+  return out;
 }
 
-function segmentsToBlocks(segments: MemoriaSegment[]): { key: string; segment: MemoriaSegment }[] {
-  return segments.map((segment, index) => ({ key: segmentKey(segment, index, segments), segment }));
+function alignFlatUnits(priorUnits: FlatUnit[], currentUnits: FlatUnit[]): ComparedBlock[] {
+  const changes = diffArrays(priorUnits, currentUnits, unitsMatch);
+  const result: ComparedBlock[] = [];
+  let i = 0;
+
+  while (i < changes.length) {
+    const change = changes[i]!;
+    if (!change.added && !change.removed) {
+      const priorRun = change.value;
+      const currentRun = change.paired ?? priorRun;
+      for (let k = 0; k < priorRun.length; k++) {
+        result.push(...compareUnitPair(priorRun[k]!, currentRun[k]!));
+      }
+      i++;
+      continue;
+    }
+
+    const removed: FlatUnit[] = [];
+    const added: FlatUnit[] = [];
+    while (i < changes.length && (changes[i]!.added || changes[i]!.removed)) {
+      if (changes[i]!.removed) removed.push(...changes[i]!.value);
+      if (changes[i]!.added) added.push(...changes[i]!.value);
+      i++;
+    }
+    result.push(...pairUnmatchedUnits(removed, added));
+  }
+
+  return result;
 }
 
 function classifyPair(prior: string, current: string): ComparedLine {
@@ -395,28 +476,58 @@ function pairTextBlocks(priorBlocks: string[], currentBlocks: string[]): Compare
 
     const removedFlat = aplanarBloquesAParrafo(removedBlocks);
     const addedFlat = aplanarBloquesAParrafo(addedBlocks);
-    if (
-      removedFlat.length > 0 &&
-      addedFlat.length > 0 &&
-      removedFlat.length === addedFlat.length &&
-      removedFlat.every((p, idx) => textosEquivalentes(p, addedFlat[idx] ?? ""))
-    ) {
-      for (let k = 0; k < removedFlat.length; k++) {
-        pushComparedLine(result, classifyPair(removedFlat[k], addedFlat[k]));
-      }
-      continue;
-    }
 
-    const pairs = Math.max(removedFlat.length, addedFlat.length);
-    for (let j = 0; j < pairs; j++) {
-      const prior = removedFlat[j] ?? "";
-      const current = addedFlat[j] ?? "";
-      if (prior && current) {
-        pushComparedLine(result, classifyPair(prior, current));
-      } else if (prior) {
-        result.push({ type: "text", line: { kind: "removed", prior, current: "" } });
-      } else if (current) {
-        result.push({ type: "text", line: { kind: "added", prior: "", current } });
+    const textPairs = diffArrays(
+      removedFlat.map((t) => ({ kind: "text" as const, content: t })),
+      addedFlat.map((t) => ({ kind: "text" as const, content: t })),
+      (a, b) => blocksMatch(a.content, b.content)
+    );
+
+    let ri = 0;
+    while (ri < textPairs.length) {
+      const chunk = textPairs[ri]!;
+      if (!chunk.added && !chunk.removed) {
+        const priorRun = chunk.value.map((u) => u.content);
+        const currentRun = (chunk.paired ?? chunk.value).map((u) => u.content);
+        for (let k = 0; k < priorRun.length; k++) {
+          pushComparedLine(result, classifyPair(priorRun[k]!, currentRun[k]!));
+        }
+        ri++;
+        continue;
+      }
+
+      const removedUnits: FlatTextUnit[] = [];
+      const addedUnits: FlatTextUnit[] = [];
+      while (ri < textPairs.length && (textPairs[ri]!.added || textPairs[ri]!.removed)) {
+        if (textPairs[ri]!.removed) removedUnits.push(...textPairs[ri]!.value);
+        if (textPairs[ri]!.added) addedUnits.push(...textPairs[ri]!.value);
+        ri++;
+      }
+
+      const usedAdded = new Set<number>();
+      for (const r of removedUnits) {
+        let matchIdx = -1;
+        for (let j = 0; j < addedUnits.length; j++) {
+          if (usedAdded.has(j)) continue;
+          if (blocksMatch(r.content, addedUnits[j]!.content)) {
+            matchIdx = j;
+            break;
+          }
+        }
+        if (matchIdx >= 0) {
+          usedAdded.add(matchIdx);
+          pushComparedLine(result, classifyPair(r.content, addedUnits[matchIdx]!.content));
+        } else {
+          result.push({ type: "text", line: { kind: "removed", prior: r.content, current: "" } });
+        }
+      }
+      for (let j = 0; j < addedUnits.length; j++) {
+        if (!usedAdded.has(j)) {
+          result.push({
+            type: "text",
+            line: { kind: "added", prior: "", current: addedUnits[j]!.content },
+          });
+        }
       }
     }
   }
@@ -427,176 +538,6 @@ function pairTextBlocks(priorBlocks: string[], currentBlocks: string[]): Compare
 function tableSegmentToText(seg: MemoriaSegment): string {
   if (seg.type !== "table") return "";
   return seg.rows.map((row) => row.cells.join(" | ")).join("\n");
-}
-
-function compareSegmentPair(pSeg: MemoriaSegment, cSeg: MemoriaSegment): ComparedBlock[] {
-  if (pSeg.type === "table" && cSeg.type === "table") {
-    return [
-      {
-        type: "table",
-        table: buildTableComparison(tableSegmentToText(pSeg), tableSegmentToText(cSeg)),
-      },
-    ];
-  }
-
-  if (pSeg.type === "text" && cSeg.type === "text") {
-    return pairTextBlocks(splitTextBlocks(pSeg.content), splitTextBlocks(cSeg.content));
-  }
-
-  return pairTextBlocks(
-    [pSeg.type === "text" ? pSeg.content : tableSegmentToText(pSeg)],
-    [cSeg.type === "text" ? cSeg.content : tableSegmentToText(cSeg)]
-  );
-}
-
-function compareChangedRun(
-  priorRun: MemoriaSegment[],
-  currentRun: MemoriaSegment[]
-): ComparedBlock[] {
-  const out: ComparedBlock[] = [];
-  const usedCurrent = new Set<number>();
-
-  // 1) Empareja primero tablas por clave (evita que una tabla "salte" de nivel).
-  for (let pi = 0; pi < priorRun.length; pi++) {
-    if (priorRun[pi]?.type !== "table") continue;
-    let match = -1;
-    for (let ci = 0; ci < currentRun.length; ci++) {
-      if (usedCurrent.has(ci)) continue;
-      if (currentRun[ci]?.type !== "table") continue;
-      const pk = tablaContextoKey(priorRun[pi]);
-      const ck = tablaContextoKey(currentRun[ci]);
-      if (pk && ck && pk === ck) {
-        match = ci;
-        break;
-      }
-    }
-    if (match >= 0) {
-      usedCurrent.add(match);
-      out.push(...compareSegmentPair(priorRun[pi], currentRun[match]));
-      priorRun[pi] = { type: "text", content: "" };
-      currentRun[match] = { type: "text", content: "" };
-    }
-  }
-
-  // 2) Empareja secuencialmente lo restante, priorizando mismo tipo.
-  let pi = 0;
-  let ci = 0;
-  while (pi < priorRun.length || ci < currentRun.length) {
-    while (pi < priorRun.length && segmentoTextoVacio(priorRun[pi])) pi++;
-    while (ci < currentRun.length && segmentoTextoVacio(currentRun[ci])) ci++;
-
-    const p = pi < priorRun.length ? priorRun[pi] : null;
-    const c = ci < currentRun.length ? currentRun[ci] : null;
-
-    if (p && c) {
-      if (p.type === c.type) {
-        out.push(...compareSegmentPair(p, c));
-        pi++;
-        ci++;
-        continue;
-      }
-
-      // Lookahead corto: intenta no cruzar tabla<->texto si hay pareja cercana.
-      const pNext = pi + 1 < priorRun.length ? priorRun[pi + 1] : null;
-      const cNext = ci + 1 < currentRun.length ? currentRun[ci + 1] : null;
-
-      if (pNext && pNext.type === c.type) {
-        if (p.type === "table") {
-          out.push({ type: "table", table: buildTableComparison(tableSegmentToText(p), "") });
-        } else {
-          out.push({ type: "text", line: { kind: "removed", prior: p.content, current: "" } });
-        }
-        pi++;
-        continue;
-      }
-      if (cNext && cNext.type === p.type) {
-        if (c.type === "table") {
-          out.push({ type: "table", table: buildTableComparison("", tableSegmentToText(c)) });
-        } else {
-          out.push({ type: "text", line: { kind: "added", prior: "", current: c.content } });
-        }
-        ci++;
-        continue;
-      }
-
-      out.push(...compareSegmentPair(p, c));
-      pi++;
-      ci++;
-      continue;
-    }
-
-    if (p) {
-      if (p.type === "table") {
-        out.push({ type: "table", table: buildTableComparison(tableSegmentToText(p), "") });
-      } else {
-        out.push({ type: "text", line: { kind: "removed", prior: p.content, current: "" } });
-      }
-      pi++;
-      continue;
-    }
-
-    if (c) {
-      if (c.type === "table") {
-        out.push({ type: "table", table: buildTableComparison("", tableSegmentToText(c)) });
-      } else {
-        out.push({ type: "text", line: { kind: "added", prior: "", current: c.content } });
-      }
-      ci++;
-    }
-  }
-
-  return out;
-}
-
-function alignSegments(
-  priorSegs: MemoriaSegment[],
-  currentSegs: MemoriaSegment[]
-): ComparedBlock[] {
-  const prior = segmentsToBlocks(priorSegs);
-  const current = segmentsToBlocks(currentSegs);
-  const changes = diffBlocks(
-    prior.map((b) => b.key),
-    current.map((b) => b.key)
-  );
-
-  const result: ComparedBlock[] = [];
-  let pi = 0;
-  let ci = 0;
-  let i = 0;
-
-  while (i < changes.length) {
-    const change = changes[i];
-
-    if (!change.added && !change.removed) {
-      const runLen = change.value.length;
-      for (let k = 0; k < runLen; k++) {
-        const pSeg = prior[pi + k]?.segment;
-        const cSeg = current[ci + k]?.segment;
-        if (!pSeg || !cSeg) continue;
-        result.push(...compareSegmentPair(pSeg, cSeg));
-      }
-      pi += runLen;
-      ci += runLen;
-      i++;
-      continue;
-    }
-
-    const removedKeys: string[] = [];
-    const addedKeys: string[] = [];
-    while (i < changes.length && (changes[i].added || changes[i].removed)) {
-      if (changes[i].removed) removedKeys.push(...(changes[i].value as string[]));
-      if (changes[i].added) addedKeys.push(...(changes[i].value as string[]));
-      i++;
-    }
-
-    const removedRun = prior.slice(pi, pi + removedKeys.length).map((x) => x.segment);
-    const addedRun = current.slice(ci, ci + addedKeys.length).map((x) => x.segment);
-    result.push(...compareChangedRun(removedRun, addedRun));
-    pi += removedKeys.length;
-    ci += addedKeys.length;
-  }
-
-  return result;
 }
 
 export function buildContentComparison(priorText: string, currentText: string): ComparedBlock[] {
@@ -631,7 +572,9 @@ export function buildContentComparison(priorText: string, currentText: string): 
     );
   }
 
-  return flattenBlocksForAlignedDisplay(alignSegments(priorSegs, currentSegs));
+  return flattenBlocksForAlignedDisplay(
+    alignFlatUnits(flattenSegments(priorSegs), flattenSegments(currentSegs))
+  );
 }
 
 export function hasContentDiff(priorText: string, currentText: string): boolean {

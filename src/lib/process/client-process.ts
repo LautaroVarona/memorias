@@ -8,17 +8,31 @@ import { toBuffer } from "@/lib/process/to-buffer";
 import { getArchivoBlob } from "@/lib/storage/expediente-store";
 import type { StoredArchivo, StoredReglaCustom } from "@/lib/storage/types";
 
-async function parseArchivoLocal(archivo: StoredArchivo): Promise<ParsedArchivoPayload> {
+async function parseArchivoLocal(
+  archivo: StoredArchivo,
+  onProgress?: (message: string) => void
+): Promise<ParsedArchivoPayload> {
   const blob = await getArchivoBlob(archivo.id);
   if (!blob) throw new Error(`No se encontró el archivo «${archivo.nombre}» en el navegador`);
 
-  return parseSingleArchivo({
-    id: archivo.id,
-    nombre: archivo.nombre,
-    tipo: archivo.tipo,
-    metadata: archivo.metadata,
-    buffer: toBuffer(blob),
-  });
+  const esMemoria = archivo.tipo === "memoria_word" || archivo.tipo === "memoria_pdf";
+  if (esMemoria) {
+    onProgress?.(`Memoria ${archivo.nombre}: iniciando lectura…`);
+  } else {
+    onProgress?.(`Analizando ${archivo.nombre}…`);
+  }
+
+  return parseSingleArchivo(
+    {
+      id: archivo.id,
+      nombre: archivo.nombre,
+      tipo: archivo.tipo,
+      metadata: archivo.metadata,
+      buffer: toBuffer(blob),
+    },
+    undefined,
+    onProgress
+  );
 }
 
 async function parseArchivosList(
@@ -29,8 +43,8 @@ async function parseArchivosList(
 
   for (let i = 0; i < archivos.length; i++) {
     const archivo = archivos[i];
-    onProgress?.(`Analizando ${archivo.nombre} (${i + 1}/${archivos.length})…`);
-    parsed.push(await parseArchivoLocal(archivo));
+    onProgress?.(`Archivo ${i + 1}/${archivos.length}: ${archivo.nombre}`);
+    parsed.push(await parseArchivoLocal(archivo, onProgress));
   }
 
   return parsed;
@@ -50,11 +64,11 @@ export async function processExpedienteLocal(input: {
 
   let priorParsed: ParsedArchivoPayload[] | undefined;
   if (input.priorYear?.archivos.length) {
-    input.onProgress?.("Analizando ejercicio anterior…");
+    input.onProgress?.("Leyendo memorias del ejercicio anterior…");
     priorParsed = await parseArchivosList(input.priorYear.archivos, input.onProgress);
   }
 
-  input.onProgress?.("Ejecutando validaciones en el navegador…");
+  input.onProgress?.("Comparando memorias y ejecutando validaciones…");
 
   return finalizeExpedienteCore({
     expedienteId: input.expedienteId,

@@ -111,7 +111,8 @@ function mergeArchivoMetadata(
 
 export async function parseSingleArchivo(
   archivo: ArchivoInput,
-  ejercicioAncla?: number
+  ejercicioAncla?: number,
+  onProgress?: (message: string) => void
 ): Promise<ParsedArchivoPayload> {
   const buffer = archivo.buffer;
   const fileName = archivo.nombre;
@@ -139,7 +140,9 @@ export async function parseSingleArchivo(
 
   if (tipo === "memoria_word" || tipo === "memoria_pdf") {
     try {
-      memoria = await parseMemoria(buffer, fileName, tipo, ejercicioAncla);
+      memoria = await parseMemoria(buffer, fileName, tipo, ejercicioAncla, (msg) =>
+        onProgress?.(`${fileName}: ${msg}`)
+      );
       metadata = mergeArchivoMetadata(metadata, {
         ejercicio: memoria.datosClave.ejercicio,
         cliente: memoria.datosClave.denominacion,

@@ -246,8 +246,15 @@ export function ExpedienteDetailContent() {
       )}
 
       {processing && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          {processProgress || "Ejecutando revisión automática… puede tardar unos segundos con archivos grandes."}
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <p className="font-medium">Revisión en curso</p>
+          <p className="mt-1 text-blue-800">
+            {processProgress || "Preparando análisis del expediente…"}
+          </p>
+          <p className="mt-2 text-xs text-blue-700/80">
+            Primero se leen las memorias y se detectan apartados y tablas; después se comparan
+            con el ejercicio anterior y se ejecutan las validaciones.
+          </p>
         </div>
       )}
 

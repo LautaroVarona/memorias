@@ -168,13 +168,17 @@ async function extraerTexto(buffer: Buffer, formato: FormatoMemoria): Promise<{ 
   }
 }
 
+export type MemoriaParseProgress = (message: string) => void;
+
 export async function parseMemoria(
   buffer: Buffer,
   fileName: string,
   tipo: "memoria_word" | "memoria_pdf",
-  ejercicioActual?: number
+  ejercicioActual?: number,
+  onProgress?: MemoriaParseProgress
 ): Promise<MemoriaNormalizada> {
   const formato = detectarFormatoMemoria(buffer) ?? (tipo === "memoria_pdf" ? "pdf" : "docx");
+  onProgress?.(`Leyendo texto de ${fileName}…`);
   const { texto: bruto, paginas } = await extraerTexto(buffer, formato);
   const brutoNormalizado = normalizarTexto(bruto);
 
@@ -183,11 +187,10 @@ export async function parseMemoria(
     ejercicioDesdeNombreArchivo(fileName) ??
     detectarAnioPortada(brutoNormalizado);
 
+  onProgress?.("Normalizando variantes anuales del documento…");
   const texto = deduplicarVariantesAnualesTexto(brutoNormalizado, ejercicioPreliminar);
 
-  // Flujo de bloques inline (texto/tabla) en orden de aparición:
-  //  - RTF (A3SOC): se reconstruye desde los controles \\trowd/\\cell/\\row/\\lastrow.
-  //  - resto: se segmenta el texto normalizado (celdas " | "), separando tablas anuales.
+  onProgress?.("Segmentando párrafos y tablas…");
   const bloquesDocumento: MemoriaBloque[] =
     formato === "rtf"
       ? extraerBloquesRtf(buffer).map((b) =>
@@ -198,16 +201,29 @@ export async function parseMemoria(
       : segmentarBloquesDeTexto(texto);
 
   const apartados = extraerApartadosDesdeBloques(bloquesDocumento);
+  const titulosApartados = apartados
+    .filter((a) => a.numero !== undefined)
+    .map((a) => `${String(a.numero).padStart(2, "0")} ${a.titulo}`);
+  if (titulosApartados.length > 0) {
+    const muestra = titulosApartados.slice(0, 4).join(" · ");
+    const resto = titulosApartados.length > 4 ? ` (+${titulosApartados.length - 4})` : "";
+    onProgress?.(`${titulosApartados.length} apartados: ${muestra}${resto}`);
+  } else {
+    onProgress?.("Estructurando contenido del documento…");
+  }
 
   // Anclaje temporal: ejercicio explícito > nombre archivo > detección en contenido
   const datosClave = extraerDatosClave(texto, fileName, ejercicioActual);
   const ejercicioAncla = ejercicioActual ?? datosClave.ejercicio;
 
+  onProgress?.("Extrayendo tablas y datos clave…");
   const tablas = extraerTablasDesdeBloques(bloquesDocumento, texto, ejercicioAncla);
   const cifras = extraerCifras(texto);
   const statements = extraerStatements(texto);
   const formal = analizarFormal(texto);
   const anios = extraerAniosMencionados(texto, ejercicioAncla);
+
+  onProgress?.(`Memoria lista — ${tablas.length} tablas detectadas`);
 
   const erroresParseo = tablas
     .filter((t) => t.tabla_rota && t.errorParseo)
