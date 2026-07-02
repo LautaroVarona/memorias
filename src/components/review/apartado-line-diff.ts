@@ -9,7 +9,7 @@ import {
   type ComparedTable,
 } from "./apartado-table-diff";
 import { segmentMemoriaContent, type MemoriaSegment } from "./parse-pipe-table";
-import { etiquetaFilaParaAlineacion } from "@/lib/parsers/memoria/table-parser";
+import { etiquetaFilaParaAlineacion, pareceTextoIntroductorioTabla } from "@/lib/parsers/memoria/table-parser";
 import {
   agruparLineasEnParrafos,
   claveSemanticaBloque,
@@ -198,7 +198,12 @@ function segmentKey(seg: MemoriaSegment, index: number, segments: MemoriaSegment
       /a continuaci[oó]n se detalla/i.test(base) ||
       /se muestran a continuaci[oó]n/i.test(base) ||
       /:\s*$/.test(base);
-    if (textoCortoOGenerico) {
+    if (textoCortoOGenerico || pareceTextoIntroductorioTabla(seg.content)) {
+      // Los párrafos que introducen una tabla deben alinearse por redacción,
+      // no por si Word los volcó antes o después de la misma tabla.
+      if (pareceTextoIntroductorioTabla(seg.content) || /:\s*$/.test(seg.content.trim())) {
+        return `t:${base}`;
+      }
       const prevTabla = tablaContextoKey(segments[index - 1]);
       const nextTabla = tablaContextoKey(segments[index + 1]);
       if (prevTabla || nextTabla) {

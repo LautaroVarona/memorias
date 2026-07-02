@@ -365,10 +365,12 @@ export const interannualRules: RuleDefinition[] = [
 
       const muestra = descuadres
         .slice(0, 3)
-        .map(
-          (d) =>
-            `«${d.filaEtiqueta}»: ${formatEuro(d.valorMemoriaAnterior)} en memoria ${ejercicioAnterior} vs ${formatEuro(d.valorColumnaComparativa)} en columna ${ejercicioAnterior} de memoria ${ejercicio}`
-        )
+        .map((d) => {
+          if (d.motivo === "falta_elemento") {
+            return `«${d.filaEtiqueta}»: falta en memoria ${ejercicio} (existía en ${ejercicioAnterior}: ${formatEuro(d.valorMemoriaAnterior)})`;
+          }
+          return `«${d.filaEtiqueta}»: ${formatEuro(d.valorMemoriaAnterior)} en memoria ${ejercicioAnterior} vs ${formatEuro(d.valorColumnaComparativa)} en columna ${ejercicioAnterior} de memoria ${ejercicio}`;
+        })
         .join("; ");
 
       return seniorExplanation(

@@ -8,6 +8,7 @@ import {
   fusionarEtiquetaEnCeldas,
   limpiarValorCelda,
   pareceEtiquetaFilaSuelta,
+  pareceTextoIntroductorioTabla,
   parsearLineaTabla,
   procesarBloqueTabla,
 } from "@/lib/parsers/memoria/table-parser";
@@ -25,6 +26,38 @@ export type MemoriaSegment =
 
 export function parseTableRow(line: string): string[] {
   return parsearLineaTabla(line);
+}
+
+function textoEsIntroductorioDeTabla(content: string): boolean {
+  const lineas = content
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lineas.length === 0 || lineas.length > 3) return false;
+  return lineas.every(
+    (l) => pareceTextoIntroductorioTabla(l) || (l.length <= 80 && /:\s*$/.test(l))
+  );
+}
+
+function corregirOrdenIntroductorioSegmentos(segments: MemoriaSegment[]): MemoriaSegment[] {
+  const out: MemoriaSegment[] = [];
+  let i = 0;
+  while (i < segments.length) {
+    const actual = segments[i];
+    const siguiente = segments[i + 1];
+    if (
+      actual.type === "table" &&
+      siguiente?.type === "text" &&
+      textoEsIntroductorioDeTabla(siguiente.content)
+    ) {
+      out.push(siguiente, actual);
+      i += 2;
+      continue;
+    }
+    out.push(actual);
+    i += 1;
+  }
+  return out;
 }
 
 export function cellLooksNumeric(cell: string): boolean {
@@ -84,6 +117,7 @@ export function segmentMemoriaContent(text: string): MemoriaSegment[] {
       ({ cells, etiquetaPendiente } = fusionarEtiquetaEnCeldas(cells, etiquetaPendiente));
       if (etiquetaPendiente) {
         textBuffer.push(etiquetaPendiente);
+        flushText();
       }
 
       if (tableBuffer.length > 0 && debeIniciarNuevaTabla(cells, tableBuffer)) {
@@ -112,9 +146,9 @@ export function segmentMemoriaContent(text: string): MemoriaSegment[] {
     }
   }
 
-  flushText();
   flushTable();
-  return segments;
+  flushText();
+  return corregirOrdenIntroductorioSegmentos(segments);
 }
 
 /** Convierte filas enriquecidas a matriz plana (p. ej. para diff). */

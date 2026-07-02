@@ -13,6 +13,7 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "test:examples": "tsx scripts/e2e-examples.ts",
+    "test:segment-order": "tsx scripts/test-segment-order.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

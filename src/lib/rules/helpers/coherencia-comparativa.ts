@@ -3,10 +3,13 @@ import {
   detectarFusionEnCabecera,
   indiceColumnaEjercicioEstricto,
 } from "@/lib/parsers/memoria/schemas";
+import { etiquetaFilaParaAlineacion } from "@/lib/parsers/memoria/table-parser";
 import { compareWithTolerance } from "@/lib/rules/helpers/accounts";
 import { celdaImporteTieneValor } from "@/lib/rules/helpers/tablas-interanual";
 import type { TablaMemoria } from "@/types/domain";
 import { normalizarTextoApartado } from "./text-normalize";
+
+export type MotivoDescuadreComparativa = "descuadre_cifra" | "falta_elemento";
 
 export interface DescuadreComparativa {
   apartado?: string;
@@ -14,6 +17,17 @@ export interface DescuadreComparativa {
   ejercicioReferencia: number;
   valorMemoriaAnterior: number;
   valorColumnaComparativa: number;
+  motivo: MotivoDescuadreComparativa;
+  tablaTitulo?: string;
+  pagina?: number;
+}
+
+interface FilaEtiquetada {
+  etiqueta: string;
+  etiquetaDisplay: string;
+  valor: number | null;
+  tieneValor: boolean;
+  apartado?: string;
   tablaTitulo?: string;
   pagina?: number;
 }
@@ -25,11 +39,79 @@ export interface ResultadoColumnaEjercicio {
   error?: string;
 }
 
-function normalizarEtiquetaFila(label: string): string {
+function normalizarEtiquetaFila(label: string, cabecera?: string[]): string {
+  if (cabecera) {
+    return etiquetaFilaParaAlineacion([label], cabecera);
+  }
   return normalizarTextoApartado(label)
     .replace(/\bimporte\s+20\d{2}\b/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Empareja filas por etiqueta (LCS) aunque el orden o el número de filas difiera. */
+function alinearFilasPorEtiqueta(
+  priorFilas: FilaEtiquetada[],
+  currentFilas: FilaEtiquetada[]
+): { prior?: FilaEtiquetada; current?: FilaEtiquetada }[] {
+  const priorLabels = priorFilas.map((f) => f.etiqueta);
+  const currentLabels = currentFilas.map((f) => f.etiqueta);
+  const n = priorLabels.length;
+  const m = currentLabels.length;
+  const dp = Array.from({ length: n + 1 }, () => Array<number>(m + 1).fill(0));
+
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      const match = priorLabels[i] === currentLabels[j] && priorLabels[i].length > 0;
+      dp[i][j] = match ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const pairs: { prior?: FilaEtiquetada; current?: FilaEtiquetada }[] = [];
+  let i = 0;
+  let j = 0;
+
+  while (i < n || j < m) {
+    if (i < n && j < m && priorLabels[i] === currentLabels[j] && priorLabels[i].length > 0) {
+      pairs.push({ prior: priorFilas[i], current: currentFilas[j] });
+      i++;
+      j++;
+    } else if (i < n && (j >= m || dp[i + 1][j] >= dp[i][j + 1])) {
+      pairs.push({ prior: priorFilas[i] });
+      i++;
+    } else {
+      pairs.push({ current: currentFilas[j] });
+      j++;
+    }
+  }
+
+  return pairs;
+}
+
+function filasEtiquetadasDeTabla(tabla: TablaMemoria, colIdx: number): FilaEtiquetada[] {
+  const filas: FilaEtiquetada[] = [];
+
+  for (const fila of tabla.filas) {
+    if (esFilaCabeceraAnual(fila)) continue;
+    const etiqueta = normalizarEtiquetaFila(fila[0] ?? "", tabla.cabecera);
+    if (!etiqueta || etiqueta.length < 3) continue;
+    const celda = fila[colIdx] ?? "";
+    const valor = parseImporte(celda);
+    const tieneValor = celdaImporteTieneValor(celda);
+    if (!tieneValor) continue;
+
+    filas.push({
+      etiqueta,
+      etiquetaDisplay: fila[0]?.trim() || etiqueta,
+      valor,
+      tieneValor,
+      apartado: tabla.apartado,
+      tablaTitulo: tabla.titulo,
+      pagina: tabla.pagina,
+    });
+  }
+
+  return filas;
 }
 
 function esFilaCabeceraAnual(cells: string[]): boolean {
@@ -115,14 +197,12 @@ export function extraerCifrasEjercicio(
   >();
 
   for (const tabla of tablas) {
-    if (tabla.tabla_rota || tabla.informacionNoComparable) continue;
-
     const col = encontrarColumnaEjercicio(tabla.cabecera, ejercicioObjetivo);
     if (col.indice === null) continue;
 
     for (const fila of tabla.filas) {
       if (esFilaCabeceraAnual(fila)) continue;
-      const etiqueta = normalizarEtiquetaFila(fila[0] ?? "");
+      const etiqueta = normalizarEtiquetaFila(fila[0] ?? "", tabla.cabecera);
       if (!etiqueta || etiqueta.length < 3) continue;
       const celda = fila[col.indice] ?? "";
       const valor = parseImporte(celda);
@@ -159,74 +239,95 @@ export function detectarDescuadresComparativa(
   const descuadres: DescuadreComparativa[] = [];
   const vistos = new Set<string>();
 
-  for (const tabla of tablasActual) {
-    if (tabla.tabla_rota || tabla.informacionNoComparable) continue;
+  const priorPorApartado = new Map<string, FilaEtiquetada[]>();
+  for (const tabla of tablasAnterior) {
+    const col = encontrarColumnaEjercicio(tabla.cabecera, ejercicioAnterior);
+    if (col.indice === null) continue;
+    const ap = tabla.apartado?.replace(/\D/g, "").padStart(2, "0") ?? "";
+    const filas = filasEtiquetadasDeTabla(tabla, col.indice);
+    if (filas.length === 0) continue;
+    priorPorApartado.set(ap, [...(priorPorApartado.get(ap) ?? []), ...filas]);
+  }
 
+  for (const tabla of tablasActual) {
     const col = encontrarColumnaEjercicio(tabla.cabecera, ejercicioAnterior);
     if (col.indice === null) continue;
 
-    for (const fila of tabla.filas) {
-      if (esFilaCabeceraAnual(fila)) continue;
-      const etiqueta = normalizarEtiquetaFila(fila[0] ?? "");
-      if (!etiqueta || etiqueta.length < 3) continue;
+    const apartado = tabla.apartado?.replace(/\D/g, "").padStart(2, "0") ?? "";
+    const currentFilas = filasEtiquetadasDeTabla(tabla, col.indice);
+    const priorFilas = priorPorApartado.get(apartado) ?? [];
 
-      const celdaComparativa = fila[col.indice] ?? "";
-      const valorComparativa = parseImporte(celdaComparativa);
-      const tieneComparativa = celdaImporteTieneValor(celdaComparativa);
+    const pares = alinearFilasPorEtiqueta(priorFilas, currentFilas);
 
-      const clave = claveFila(tabla.apartado, etiqueta);
-      if (vistos.has(clave)) continue;
+    for (const par of pares) {
+      const { prior, current } = par;
 
-      const ref = referencia.get(clave);
-      if (!ref) {
-        if (tieneComparativa) {
-          vistos.add(clave);
-          descuadres.push({
-            apartado: tabla.apartado,
-            filaEtiqueta: fila[0]?.trim() || etiqueta,
-            ejercicioReferencia: ejercicioAnterior,
-            valorMemoriaAnterior: 0,
-            valorColumnaComparativa: valorComparativa ?? 0,
-            tablaTitulo: tabla.titulo,
-            pagina: tabla.pagina,
-          });
-        }
-        continue;
-      }
-
-      vistos.add(clave);
-
-      if (!tieneComparativa) {
+      if (prior && !current) {
+        const clave = claveFila(prior.apartado ?? tabla.apartado, prior.etiqueta);
+        if (vistos.has(clave)) continue;
+        vistos.add(clave);
         descuadres.push({
-          apartado: tabla.apartado ?? ref.apartado,
-          filaEtiqueta: fila[0]?.trim() || ref.filaEtiqueta,
+          apartado: prior.apartado ?? tabla.apartado,
+          filaEtiqueta: prior.etiquetaDisplay,
           ejercicioReferencia: ejercicioAnterior,
-          valorMemoriaAnterior: ref.valor ?? 0,
+          valorMemoriaAnterior: prior.valor ?? 0,
           valorColumnaComparativa: 0,
-          tablaTitulo: tabla.titulo || ref.tablaTitulo,
-          pagina: tabla.pagina ?? ref.pagina,
+          motivo: "falta_elemento",
+          tablaTitulo: prior.tablaTitulo ?? tabla.titulo,
+          pagina: prior.pagina ?? tabla.pagina,
         });
         continue;
       }
 
+      if (!prior && current) {
+        const clave = claveFila(current.apartado ?? tabla.apartado, current.etiqueta);
+        vistos.add(clave);
+        continue;
+      }
+
+      if (!prior || !current) continue;
+
+      const clave = claveFila(tabla.apartado, current.etiqueta);
+      if (vistos.has(clave)) continue;
+      vistos.add(clave);
+
+      const ref = referencia.get(clave);
+      const valorComparativa = current.valor;
+      const valorReferencia = ref?.valor ?? prior.valor;
+
       if (
-        ref.valor !== null &&
+        valorReferencia !== null &&
         valorComparativa !== null &&
-        compareWithTolerance(valorComparativa, ref.valor, tolerancia)
+        compareWithTolerance(valorComparativa, valorReferencia, tolerancia)
       ) {
         continue;
       }
 
       descuadres.push({
-        apartado: tabla.apartado ?? ref.apartado,
-        filaEtiqueta: fila[0]?.trim() || ref.filaEtiqueta,
+        apartado: tabla.apartado ?? ref?.apartado,
+        filaEtiqueta: current.etiquetaDisplay,
         ejercicioReferencia: ejercicioAnterior,
-        valorMemoriaAnterior: ref.valor ?? 0,
+        valorMemoriaAnterior: valorReferencia ?? 0,
         valorColumnaComparativa: valorComparativa ?? 0,
-        tablaTitulo: tabla.titulo || ref.tablaTitulo,
-        pagina: tabla.pagina ?? ref.pagina,
+        motivo: "descuadre_cifra",
+        tablaTitulo: tabla.titulo || ref?.tablaTitulo,
+        pagina: tabla.pagina ?? ref?.pagina,
       });
     }
+  }
+
+  for (const [clave, ref] of referencia) {
+    if (vistos.has(clave)) continue;
+    descuadres.push({
+      apartado: ref.apartado,
+      filaEtiqueta: ref.filaEtiqueta,
+      ejercicioReferencia: ejercicioAnterior,
+      valorMemoriaAnterior: ref.valor ?? 0,
+      valorColumnaComparativa: 0,
+      motivo: "falta_elemento",
+      tablaTitulo: ref.tablaTitulo,
+      pagina: ref.pagina,
+    });
   }
 
   return descuadres;

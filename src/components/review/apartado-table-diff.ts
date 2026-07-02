@@ -1,5 +1,4 @@
 import { parseImporte } from "@/lib/parsers/memoria/extractors";
-import { estructurasTablaCompatibles } from "@/lib/parsers/memoria/extractors";
 import { etiquetaFilaParaAlineacion, colapsarColumnaNifVacia } from "@/lib/parsers/memoria/table-parser";
 import { compareWithTolerance } from "@/lib/rules/helpers/accounts";
 import { celdaImporteTieneValor } from "@/lib/rules/helpers/tablas-interanual";
@@ -26,8 +25,6 @@ export interface ComparedTable {
   /** Columna del año compartido (continuidad interanual) en cada memoria, si existe. */
   priorSharedCol: number | null;
   currentSharedCol: number | null;
-  /** Las etiquetas o el número de filas no coinciden: no forzar diff fila a fila */
-  estructuraDiferente?: boolean;
   rows: SideBySideRow[];
 }
 
@@ -126,7 +123,7 @@ function yearColIndex(header: string[], year: number): number | null {
   return null;
 }
 
-/** Alinea filas de cuerpo por etiqueta (LCS); las no emparejadas quedan como []. */
+/** Alinea filas de cuerpo por etiqueta (LCS); las no emparejadas quedan en rojo. */
 function alignRows(
   priorBody: string[][],
   currentBody: string[][],
@@ -168,29 +165,10 @@ function alignRows(
   return pairs;
 }
 
-/** Filas independientes cuando la estructura difiere entre ejercicios. */
-function buildIndependentRows(
-  priorBody: string[][],
-  currentBody: string[][]
-): SideBySideRow[] {
-  const max = Math.max(priorBody.length, currentBody.length);
-  const rows: SideBySideRow[] = [];
-  for (let i = 0; i < max; i++) {
-    const prior = priorBody[i];
-    const current = currentBody[i];
-    rows.push({
-      kind: "unchanged",
-      prior: prior && prior.length > 0 ? prior : null,
-      current: current && current.length > 0 ? current : null,
-    });
-  }
-  return rows;
-}
-
 /**
  * Compara dos bloques de tabla preservando la estructura original de cada
- * ejercicio. Las filas se alinean por etiqueta; si la estructura difiere,
- * se muestran sin forzar diff fila a fila.
+ * ejercicio. Las filas se alinean por etiqueta (fuzzy LCS); las no emparejadas
+ * o con cifra distinta en el año compartido se marcan como error estructural.
  */
 export function buildTableComparison(priorText: string, currentText: string): ComparedTable {
   const priorRows = parseRowsFromText(priorText);
@@ -201,11 +179,6 @@ export function buildTableComparison(priorText: string, currentText: string): Co
   const priorBody = priorRows.slice(1).filter((r) => !esFilaCabeceraAnual(r));
   const currentBody = currentRows.slice(1).filter((r) => !esFilaCabeceraAnual(r));
 
-  const estructuraDiferente = !estructurasTablaCompatibles(
-    { cabecera: priorHeader, filas: priorBody },
-    { cabecera: currentHeader, filas: currentBody }
-  );
-
   const compartidos = yearsInHeader(priorHeader).filter((y) =>
     yearsInHeader(currentHeader).includes(y)
   );
@@ -213,26 +186,26 @@ export function buildTableComparison(priorText: string, currentText: string): Co
   const priorSharedCol = sharedYear !== null ? yearColIndex(priorHeader, sharedYear) : null;
   const currentSharedCol = sharedYear !== null ? yearColIndex(currentHeader, sharedYear) : null;
 
-  const rows: SideBySideRow[] = estructuraDiferente
-    ? buildIndependentRows(priorBody, currentBody)
-    : alignRows(priorBody, currentBody, priorHeader, currentHeader).map(({ prior, current }) => {
-        const hasPrior = prior.length > 0;
-        const hasCurrent = current.length > 0;
+  const rows: SideBySideRow[] = alignRows(priorBody, currentBody, priorHeader, currentHeader).map(
+    ({ prior, current }) => {
+      const hasPrior = prior.length > 0;
+      const hasCurrent = current.length > 0;
 
-        let kind: LineDiffKind = "unchanged";
-        if (hasPrior && !hasCurrent) kind = "removed";
-        else if (!hasPrior && hasCurrent) kind = "added";
-        else if (priorSharedCol !== null && currentSharedCol !== null) {
-          const pv = prior[priorSharedCol] ?? "";
-          const cv = current[currentSharedCol] ?? "";
-          const priorHas = celdaCompartidaTieneValor(pv);
-          const currentHas = celdaCompartidaTieneValor(cv);
-          if (priorHas && currentHas && !cifrasEquivalentes(pv, cv)) kind = "structural";
-          else if (priorHas !== currentHas) kind = "structural";
-        }
+      let kind: LineDiffKind = "unchanged";
+      if (hasPrior && !hasCurrent) kind = "removed";
+      else if (!hasPrior && hasCurrent) kind = "added";
+      else if (priorSharedCol !== null && currentSharedCol !== null) {
+        const pv = prior[priorSharedCol] ?? "";
+        const cv = current[currentSharedCol] ?? "";
+        const priorHas = celdaCompartidaTieneValor(pv);
+        const currentHas = celdaCompartidaTieneValor(cv);
+        if (priorHas && currentHas && !cifrasEquivalentes(pv, cv)) kind = "structural";
+        else if (priorHas !== currentHas) kind = "structural";
+      }
 
-        return { kind, prior: hasPrior ? prior : null, current: hasCurrent ? current : null };
-      });
+      return { kind, prior: hasPrior ? prior : null, current: hasCurrent ? current : null };
+    }
+  );
 
   const priorCols = Math.max(priorHeader.length, ...priorBody.map((r) => r.length), 1);
   const currentCols = Math.max(currentHeader.length, ...currentBody.map((r) => r.length), 1);
@@ -244,13 +217,11 @@ export function buildTableComparison(priorText: string, currentText: string): Co
     currentCols,
     priorSharedCol,
     currentSharedCol,
-    estructuraDiferente,
     rows,
   };
 }
 
 export function tableHasChanges(table: ComparedTable): boolean {
-  if (table.estructuraDiferente) return false;
   return table.rows.some((r) => r.kind !== "unchanged");
 }
 

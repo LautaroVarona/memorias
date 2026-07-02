@@ -25,6 +25,7 @@ import {
   fusionarEtiquetaEnCeldas,
   limpiarValorCelda,
   pareceEtiquetaFilaSuelta,
+  pareceTextoIntroductorioTabla,
   parsearLineaTabla,
   procesarBloqueTabla,
   serializarFilasTabla,
@@ -465,7 +466,10 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
 
       ({ cells, etiquetaPendiente } = fusionarEtiquetaEnCeldas(cells, etiquetaPendiente));
       if (etiquetaPendiente) {
+        // No devolver al buffer: si no encaja en la fila, conservarlo como texto
+        // inmediatamente ANTES de la tabla (evita que quede después al cerrarla).
         textBuffer.push(etiquetaPendiente);
+        flushText();
       }
 
       if (tabla.length > 0 && debeIniciarNuevaTabla(cells, tabla)) {
@@ -505,7 +509,48 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
 
   flushTabla();
   flushText();
-  return bloques;
+  return corregirOrdenIntroductorioTabla(bloques);
+}
+
+/**
+ * Word binario A3SOC a veces vuelca el párrafo introductorio después de la tabla
+ * aunque en el documento esté antes. Si el texto encaja con un intro de tabla,
+ * lo reubica inmediatamente antes de la tabla adyacente.
+ */
+export function corregirOrdenIntroductorioTabla(bloques: MemoriaBloque[]): MemoriaBloque[] {
+  const out: MemoriaBloque[] = [];
+  let i = 0;
+
+  while (i < bloques.length) {
+    const actual = bloques[i];
+    const siguiente = bloques[i + 1];
+
+    if (
+      actual.type === "table" &&
+      siguiente?.type === "text" &&
+      textoEsIntroductorioDeTabla(siguiente.content)
+    ) {
+      out.push(siguiente, actual);
+      i += 2;
+      continue;
+    }
+
+    out.push(actual);
+    i += 1;
+  }
+
+  return out;
+}
+
+function textoEsIntroductorioDeTabla(content: string): boolean {
+  const lineas = content
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lineas.length === 0 || lineas.length > 3) return false;
+  return lineas.every(
+    (l) => pareceTextoIntroductorioTabla(l) || (l.length <= 80 && /:\s*$/.test(l))
+  );
 }
 
 /** Serializa una lista de bloques a texto, separando cada bloque por una línea en blanco. */
@@ -692,64 +737,15 @@ export function extraerEtiquetasFilasTabla(cabecera: string[], filas: string[][]
     .filter((etiqueta) => etiqueta.length > 0);
 }
 
-function claveTablaComparacion(tabla: TablaMemoria): string {
-  const apartado = tabla.apartado?.replace(/\D/g, "").padStart(2, "0") ?? "";
-  const titulo = normalizarTextoComparacionInteranual(tabla.titulo ?? "");
-  const cabecera = normalizarTextoComparacionInteranual(tabla.cabecera.join(" "));
-  return `${apartado}|${titulo}|${cabecera}`;
-}
-
-/**
- * Compara la estructura de dos tablas (número de filas y etiquetas de la 1ª columna).
- * Si no coinciden, la comparación fila a fila no es fiable.
- */
-export function estructurasTablaCompatibles(
-  tablaActual: Pick<TablaMemoria, "cabecera" | "filas">,
-  tablaReferencia: Pick<TablaMemoria, "cabecera" | "filas">
-): boolean {
-  const etiquetasActual = extraerEtiquetasFilasTabla(tablaActual.cabecera, tablaActual.filas);
-  const etiquetasReferencia = extraerEtiquetasFilasTabla(
-    tablaReferencia.cabecera,
-    tablaReferencia.filas
-  );
-
-  if (etiquetasActual.length !== etiquetasReferencia.length) return false;
-  return etiquetasActual.every((etiqueta, idx) => etiqueta === etiquetasReferencia[idx]);
-}
-
-/** Marca tablas cuya estructura difiere respecto a las del ejercicio anterior. */
+/** Enriquece tablas con etiquetas normalizadas de fila (sin marcarlas como no comparables). */
 export function marcarEstructurasTablasDiferentes(
   tablas: TablaMemoria[],
-  tablasReferencia?: TablaMemoria[]
+  _tablasReferencia?: TablaMemoria[]
 ): TablaMemoria[] {
-  if (!tablasReferencia?.length) return tablas;
-
-  const indiceReferencia = new Map<string, TablaMemoria>();
-  for (const tabla of tablasReferencia) {
-    const clave = claveTablaComparacion(tabla);
-    if (!indiceReferencia.has(clave)) indiceReferencia.set(clave, tabla);
-  }
-
-  return tablas.map((tabla) => {
-    const etiquetasFilas = extraerEtiquetasFilasTabla(tabla.cabecera, tabla.filas);
-    const referencia = indiceReferencia.get(claveTablaComparacion(tabla));
-    if (!referencia) {
-      return { ...tabla, etiquetasFilas };
-    }
-
-    const compatible = estructurasTablaCompatibles(tabla, referencia);
-    if (compatible) {
-      return { ...tabla, etiquetasFilas };
-    }
-
-    return {
-      ...tabla,
-      etiquetasFilas,
-      estructuraDiferente: true,
-      informacionNoComparable: true,
-      errorParseo: tabla.errorParseo ?? "Información no comparable: estructura distinta al ejercicio anterior",
-    };
-  });
+  return tablas.map((tabla) => ({
+    ...tabla,
+    etiquetasFilas: extraerEtiquetasFilasTabla(tabla.cabecera, tabla.filas),
+  }));
 }
 
 export interface ExtraerTablasOpciones {
@@ -851,8 +847,6 @@ export function extraerTablasDesdeBloques(
 
 /**
  * Extrae las tablas del texto normalizado (filas con celdas separadas por " | ").
- * Si se pasan tablas del ejercicio anterior, marca las que tengan estructura distinta
- * como no comparables (sin forzar alineación fila a fila).
  */
 export function extraerTablas(
   texto: string,

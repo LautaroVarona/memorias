@@ -184,12 +184,36 @@ const PATRON_SUBTITULO_TABLA_VINCULADAS =
   /^(OTRAS\s+PARTES\s+VINCULADAS|EMPRESAS\s+DEPENDIENTES|EMPRESAS\s+ASOCIADAS|ENTIDAD\s+DOMINANTE|ENTIDADES\s+MULTIGRUPO|SOCIEDADES\s+MULTIGRUPO)/i;
 
 /**
+ * Párrafo narrativo o título descriptivo que precede a una tabla (no es etiqueta de fila).
+ * Word binario A3SOC suele emitirlos en un párrafo aparte justo antes de la cabecera.
+ */
+export function pareceTextoIntroductorioTabla(linea: string): boolean {
+  const t = limpiarValorCelda(linea);
+  if (!t) return false;
+  if (/:\s*$/.test(t)) return true;
+  if (
+    /\b(a continuaci[oó]n|se detallan?|es el siguiente|no ha habido|a fecha de|propuesta de)\b/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  if (/\b(composici[oó]n de|importe neto|cifra de negocios)\b/i.test(t)) return true;
+  if (/\.\s*$/.test(t) && t.length >= 25) return true;
+  if (/\b(de la|de las|de los|del ejercicio|en el ejercicio)\b/i.test(t) && t.length >= 20) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Etiqueta de fila que Word a veces emite en un párrafo aparte (sin separadores de celda).
  * Típico en tablas de partes vinculadas del Word binario A3SOC.
  */
 export function pareceEtiquetaFilaSuelta(linea: string): boolean {
   const t = limpiarValorCelda(linea);
   if (!t || t.length > 160 || linea.includes("|")) return false;
+  if (pareceTextoIntroductorioTabla(t)) return false;
   if (celdaPareceImporte(t)) return false;
   if (celdaEsItemLista(t)) return false;
   if (PATRON_SUBTITULO_TABLA_VINCULADAS.test(t)) return false;
