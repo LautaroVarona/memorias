@@ -177,6 +177,30 @@ function esIntroProsaSubseccion(texto: string): boolean {
 }
 
 /**
+ * Word binario (2025) a veces pega la primera viñeta al encabezado:
+ * "a) Activos financieros: Efectivo ... - Créditos ..."
+ * Lo separamos en "encabezado:" + "- primer ítem" + resto de viñetas.
+ */
+function splitEncabezadoConPrimerItemInline(sec: string): string[] | null {
+  const m = sec.match(/^((?:[a-z]\)\s*)?[^:]+:\s+)([^-][\s\S]*?)\s+-\s+([\s\S]+)$/i);
+  if (!m) return null;
+
+  const encabezado = m[1].trim().replace(/\s+$/, "");
+  const primerItem = m[2].trim();
+  const resto = m[3].trim();
+  if (!encabezado || !primerItem || !resto) return null;
+  if (esIntroProsaSubseccion(primerItem)) return null;
+
+  const itemsResto = resto
+    .split(/\s+-\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map(asegurarPrefijoGuion);
+
+  return [encabezado, asegurarPrefijoGuion(primerItem), ...itemsResto];
+}
+
+/**
  * Descompone cualquier bloque en unidades atómicas comparables:
  * encabezado a)/b)/c), viñetas - y párrafos sueltos.
  */
@@ -201,6 +225,12 @@ export function explotarBloqueUniforme(block: string): string[] {
 
   const out: string[] = [];
   for (const sec of fuente) {
+    const encabezadoInline = splitEncabezadoConPrimerItemInline(sec);
+    if (encabezadoInline) {
+      out.push(...encabezadoInline);
+      continue;
+    }
+
     const colonGuion = sec.match(/^((?:[a-z]\)\s*)?[^:]+:\s*)\s*-\s+([\s\S]+)$/i);
     if (colonGuion) {
       out.push(colonGuion[1].trim());

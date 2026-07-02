@@ -176,9 +176,32 @@ function splitTextBlocks(text: string): string[] {
   return normalizarBloquesComparacion(agruparLineasEnParrafos(lines));
 }
 
-function segmentKey(seg: MemoriaSegment): string {
+function tablaContextoKey(seg?: MemoriaSegment): string {
+  if (!seg || seg.type !== "table") return "";
+  const header = seg.cabecera ?? seg.rows[0]?.cells ?? [];
+  return header
+    .map((c) => normalizarTextoComparacionInteranual(c))
+    .filter((c) => c.length > 0)
+    .slice(0, 3)
+    .join("+");
+}
+
+function segmentKey(seg: MemoriaSegment, index: number, segments: MemoriaSegment[]): string {
   if (seg.type === "text") {
-    return `t:${normalizarTextoComparacionInteranual(seg.content).slice(0, 240)}`;
+    const base = normalizarTextoComparacionInteranual(seg.content).slice(0, 240);
+    const textoCortoOGenerico =
+      base.length <= 160 ||
+      /a continuaci[oó]n se detalla/i.test(base) ||
+      /se muestran a continuaci[oó]n/i.test(base) ||
+      /:\s*$/.test(base);
+    if (textoCortoOGenerico) {
+      const prevTabla = tablaContextoKey(segments[index - 1]);
+      const nextTabla = tablaContextoKey(segments[index + 1]);
+      if (prevTabla || nextTabla) {
+        return `t:${base}::ctx:${prevTabla}>${nextTabla}`;
+      }
+    }
+    return `t:${base}`;
   }
   const header = seg.cabecera ?? seg.rows[0]?.cells ?? [];
   const dataRows = seg.rows.length > 1 ? seg.rows.slice(1) : seg.rows;
@@ -198,7 +221,7 @@ function segmentKey(seg: MemoriaSegment): string {
 }
 
 function segmentsToBlocks(segments: MemoriaSegment[]): { key: string; segment: MemoriaSegment }[] {
-  return segments.map((segment) => ({ key: segmentKey(segment), segment }));
+  return segments.map((segment, index) => ({ key: segmentKey(segment, index, segments), segment }));
 }
 
 function classifyPair(prior: string, current: string): ComparedLine {
