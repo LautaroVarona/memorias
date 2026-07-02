@@ -35,11 +35,18 @@ export function limpiarValorCelda(raw: string): string {
  */
 export function parsearLineaTabla(linea: string): string[] {
   const trimmed = linea.trim();
-  const cells = trimmed.split("|").map((c) => limpiarValorCelda(c));
-  if (trimmed.endsWith("|") && cells.length > 1 && cells[cells.length - 1] === "") {
-    cells.pop();
+  if (trimmed.includes("|")) {
+    const cells = trimmed.split("|").map((c) => limpiarValorCelda(c));
+    if (trimmed.endsWith("|") && cells.length > 1 && cells[cells.length - 1] === "") {
+      cells.pop();
+    }
+    return cells;
   }
-  return cells;
+  // Word/DOC puede emitir tablas separadas por tabulaciones en lugar de pipes.
+  if (trimmed.includes("\t")) {
+    return trimmed.split(/\t+/).map((c) => limpiarValorCelda(c));
+  }
+  return [limpiarValorCelda(trimmed)];
 }
 
 /** Ítem de lista alfabética/numérica (a), b), 1., etc.). */
@@ -70,7 +77,7 @@ export function filasTablaListaAVertical(filas: string[][]): string {
 /** Fila de tabla: al menos 2 celdas delimitadas (pueden estar vacías). */
 export function esLineaTabla(linea: string): boolean {
   const t = linea.trim();
-  if (!t.includes("|")) return false;
+  if (!t.includes("|") && !t.includes("\t")) return false;
   const cells = parsearLineaTabla(t);
   if (cells.length < 2) return false;
   const conTexto = cells.filter((c) => c.length > 0);

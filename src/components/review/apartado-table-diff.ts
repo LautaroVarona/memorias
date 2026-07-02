@@ -50,7 +50,7 @@ function parseRowsFromText(text: string): string[][] {
   const rows = text
     .split("\n")
     .map((line) => limpiarCeldaTabla(line))
-    .filter((line) => line.includes("|"))
+    .filter((line) => line.includes("|") || line.includes("\t"))
     .map(parseTableRow)
     .filter((row) => row.length > 0)
     .filter((row) => !esFilaDecorativa(row));

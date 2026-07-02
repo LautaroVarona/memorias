@@ -417,6 +417,130 @@ function tableSegmentToText(seg: MemoriaSegment): string {
   return seg.rows.map((row) => row.cells.join(" | ")).join("\n");
 }
 
+function compareSegmentPair(pSeg: MemoriaSegment, cSeg: MemoriaSegment): ComparedBlock[] {
+  if (pSeg.type === "table" && cSeg.type === "table") {
+    return [
+      {
+        type: "table",
+        table: buildTableComparison(tableSegmentToText(pSeg), tableSegmentToText(cSeg)),
+      },
+    ];
+  }
+
+  if (pSeg.type === "text" && cSeg.type === "text") {
+    return pairTextBlocks(splitTextBlocks(pSeg.content), splitTextBlocks(cSeg.content));
+  }
+
+  return pairTextBlocks(
+    [pSeg.type === "text" ? pSeg.content : tableSegmentToText(pSeg)],
+    [cSeg.type === "text" ? cSeg.content : tableSegmentToText(cSeg)]
+  );
+}
+
+function compareChangedRun(
+  priorRun: MemoriaSegment[],
+  currentRun: MemoriaSegment[]
+): ComparedBlock[] {
+  const out: ComparedBlock[] = [];
+  const usedCurrent = new Set<number>();
+
+  // 1) Empareja primero tablas por clave (evita que una tabla "salte" de nivel).
+  for (let pi = 0; pi < priorRun.length; pi++) {
+    if (priorRun[pi]?.type !== "table") continue;
+    let match = -1;
+    for (let ci = 0; ci < currentRun.length; ci++) {
+      if (usedCurrent.has(ci)) continue;
+      if (currentRun[ci]?.type !== "table") continue;
+      const pk = tablaContextoKey(priorRun[pi]);
+      const ck = tablaContextoKey(currentRun[ci]);
+      if (pk && ck && pk === ck) {
+        match = ci;
+        break;
+      }
+    }
+    if (match >= 0) {
+      usedCurrent.add(match);
+      out.push(...compareSegmentPair(priorRun[pi], currentRun[match]));
+      priorRun[pi] = { type: "text", content: "" };
+      currentRun[match] = { type: "text", content: "" };
+    }
+  }
+
+  // 2) Empareja secuencialmente lo restante, priorizando mismo tipo.
+  let pi = 0;
+  let ci = 0;
+  while (pi < priorRun.length || ci < currentRun.length) {
+    while (pi < priorRun.length && priorRun[pi].type === "text" && !priorRun[pi].content.trim()) pi++;
+    while (
+      ci < currentRun.length &&
+      currentRun[ci].type === "text" &&
+      !currentRun[ci].content.trim()
+    )
+      ci++;
+
+    const p = pi < priorRun.length ? priorRun[pi] : null;
+    const c = ci < currentRun.length ? currentRun[ci] : null;
+
+    if (p && c) {
+      if (p.type === c.type) {
+        out.push(...compareSegmentPair(p, c));
+        pi++;
+        ci++;
+        continue;
+      }
+
+      // Lookahead corto: intenta no cruzar tabla<->texto si hay pareja cercana.
+      const pNext = pi + 1 < priorRun.length ? priorRun[pi + 1] : null;
+      const cNext = ci + 1 < currentRun.length ? currentRun[ci + 1] : null;
+
+      if (pNext && pNext.type === c.type) {
+        if (p.type === "table") {
+          out.push({ type: "table", table: buildTableComparison(tableSegmentToText(p), "") });
+        } else {
+          out.push({ type: "text", line: { kind: "removed", prior: p.content, current: "" } });
+        }
+        pi++;
+        continue;
+      }
+      if (cNext && cNext.type === p.type) {
+        if (c.type === "table") {
+          out.push({ type: "table", table: buildTableComparison("", tableSegmentToText(c)) });
+        } else {
+          out.push({ type: "text", line: { kind: "added", prior: "", current: c.content } });
+        }
+        ci++;
+        continue;
+      }
+
+      out.push(...compareSegmentPair(p, c));
+      pi++;
+      ci++;
+      continue;
+    }
+
+    if (p) {
+      if (p.type === "table") {
+        out.push({ type: "table", table: buildTableComparison(tableSegmentToText(p), "") });
+      } else {
+        out.push({ type: "text", line: { kind: "removed", prior: p.content, current: "" } });
+      }
+      pi++;
+      continue;
+    }
+
+    if (c) {
+      if (c.type === "table") {
+        out.push({ type: "table", table: buildTableComparison("", tableSegmentToText(c)) });
+      } else {
+        out.push({ type: "text", line: { kind: "added", prior: "", current: c.content } });
+      }
+      ci++;
+    }
+  }
+
+  return out;
+}
+
 function alignSegments(
   priorSegs: MemoriaSegment[],
   currentSegs: MemoriaSegment[]
@@ -442,23 +566,7 @@ function alignSegments(
         const pSeg = prior[pi + k]?.segment;
         const cSeg = current[ci + k]?.segment;
         if (!pSeg || !cSeg) continue;
-
-        if (pSeg.type === "table" && cSeg.type === "table") {
-          const table = buildTableComparison(
-            tableSegmentToText(pSeg),
-            tableSegmentToText(cSeg)
-          );
-          result.push({ type: "table", table });
-        } else if (pSeg.type === "text" && cSeg.type === "text") {
-          result.push(...pairTextBlocks(splitTextBlocks(pSeg.content), splitTextBlocks(cSeg.content)));
-        } else {
-          result.push(
-            ...pairTextBlocks(
-              [pSeg.type === "text" ? pSeg.content : tableSegmentToText(pSeg)],
-              [cSeg.type === "text" ? cSeg.content : tableSegmentToText(cSeg)]
-            )
-          );
-        }
+        result.push(...compareSegmentPair(pSeg, cSeg));
       }
       pi += runLen;
       ci += runLen;
@@ -474,49 +582,11 @@ function alignSegments(
       i++;
     }
 
-    const pairs = Math.max(removedKeys.length, addedKeys.length);
-    for (let j = 0; j < pairs; j++) {
-      const pSeg = prior[pi]?.segment;
-      const cSeg = current[ci]?.segment;
-
-      if (pSeg && cSeg) {
-        if (pSeg.type === "table" && cSeg.type === "table") {
-          result.push({
-            type: "table",
-            table: buildTableComparison(tableSegmentToText(pSeg), tableSegmentToText(cSeg)),
-          });
-        } else {
-          result.push(
-            ...pairTextBlocks(
-              [pSeg.type === "text" ? pSeg.content : tableSegmentToText(pSeg)],
-              [cSeg.type === "text" ? cSeg.content : tableSegmentToText(cSeg)]
-            )
-          );
-        }
-        pi++;
-        ci++;
-      } else if (pSeg) {
-        if (pSeg.type === "table") {
-          result.push({
-            type: "table",
-            table: buildTableComparison(tableSegmentToText(pSeg), ""),
-          });
-        } else {
-          result.push({ type: "text", line: { kind: "removed", prior: pSeg.content, current: "" } });
-        }
-        pi++;
-      } else if (cSeg) {
-        if (cSeg.type === "table") {
-          result.push({
-            type: "table",
-            table: buildTableComparison("", tableSegmentToText(cSeg)),
-          });
-        } else {
-          result.push({ type: "text", line: { kind: "added", prior: "", current: cSeg.content } });
-        }
-        ci++;
-      }
-    }
+    const removedRun = prior.slice(pi, pi + removedKeys.length).map((x) => x.segment);
+    const addedRun = current.slice(ci, ci + addedKeys.length).map((x) => x.segment);
+    result.push(...compareChangedRun(removedRun, addedRun));
+    pi += removedKeys.length;
+    ci += addedKeys.length;
   }
 
   return result;
