@@ -26,6 +26,8 @@ import {
   introInterrumpeCabeceraTabla,
   limpiarValorCelda,
   pareceEtiquetaFilaSuelta,
+  pareceIntroReferenciaTabla,
+  pareceIntroResumenTabla,
   pareceTextoIntroductorioTabla,
   parsearLineaTabla,
   procesarBloqueTabla,
@@ -517,7 +519,13 @@ export function segmentarBloquesDeTexto(texto: string): MemoriaBloque[] {
 
   flushTabla();
   flushText();
-  return fusionarTablasPartidas(corregirOrdenIntroductorioTabla(bloques));
+  return postProcesarOrdenBloques(bloques);
+}
+
+export function postProcesarOrdenBloques(bloques: MemoriaBloque[]): MemoriaBloque[] {
+  return fusionarTablasPartidas(
+    reubicarTablaTotalFinanciera(reubicarIntrosResumenFinancieros(corregirOrdenIntroductorioTabla(bloques)))
+  );
 }
 
 function fusionarBloquesTabla(a: MemoriaTableBlock, b: MemoriaTableBlock): MemoriaTableBlock {
@@ -541,7 +549,7 @@ export function fusionarTablasPartidas(bloques: MemoriaBloque[]): MemoriaBloque[
     if (
       actual?.type === "table" &&
       siguiente?.type === "text" &&
-      textoEsIntroductorioDeTabla(siguiente.content) &&
+      textoEsIntroReferenciaDeTabla(siguiente.content) &&
       tercero?.type === "table" &&
       tablasParecenMismaTablaPartida(
         filasCeldasDeTabla(actual.rows),
@@ -589,7 +597,7 @@ export function corregirOrdenIntroductorioTabla(bloques: MemoriaBloque[]): Memor
     if (
       actual.type === "table" &&
       siguiente?.type === "text" &&
-      textoEsIntroductorioDeTabla(siguiente.content)
+      textoEsIntroReferenciaDeTabla(siguiente.content)
     ) {
       out.push(siguiente, actual);
       i += 2;
@@ -603,15 +611,181 @@ export function corregirOrdenIntroductorioTabla(bloques: MemoriaBloque[]): Memor
   return out;
 }
 
-function textoEsIntroductorioDeTabla(content: string): boolean {
+function textoEsIntroReferenciaDeTabla(content: string): boolean {
   const lineas = content
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
   if (lineas.length === 0 || lineas.length > 3) return false;
   return lineas.every(
-    (l) => pareceTextoIntroductorioTabla(l) || (l.length <= 80 && /:\s*$/.test(l))
+    (l) => pareceIntroReferenciaTabla(l) || (l.length <= 80 && /:\s*$/.test(l) && !pareceIntroResumenTabla(l))
   );
+}
+
+function textoEsIntroResumenSeccion(content: string): boolean {
+  const lineas = content
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return lineas.length > 0 && lineas.length <= 3 && lineas.every((l) => pareceIntroResumenTabla(l));
+}
+
+type ResumenFinKind = "activos_lp" | "activos_cp" | "pasivos_lp" | "pasivos_cp";
+
+function kindResumenIntro(content: string): ResumenFinKind | null {
+  const t = content.toLowerCase();
+  if (t.includes("activos financieros a largo plazo")) return "activos_lp";
+  if (t.includes("activos financieros a corto plazo")) return "activos_cp";
+  if (t.includes("pasivos financieros a largo plazo")) return "pasivos_lp";
+  if (t.includes("pasivos financieros a corto plazo")) return "pasivos_cp";
+  return null;
+}
+
+function esTablaTotalFinanciera(bloque: MemoriaBloque): boolean {
+  if (bloque.type !== "table") return false;
+  const t = (bloque.rows[0]?.cells[0] ?? "").toUpperCase();
+  return /^TOTAL (ACTIVOS|PASIVOS) FINANCIEROS/i.test(t);
+}
+
+function esTablaDetalleFinanciera(bloque: MemoriaBloque): boolean {
+  if (bloque.type !== "table" || esTablaTotalFinanciera(bloque)) return false;
+  const t = (bloque.rows[0]?.cells[0] ?? "").toUpperCase();
+  return /\b(LP|CP)\b/.test(t);
+}
+
+function detalleMatchesKind(bloque: MemoriaBloque, kind: ResumenFinKind): boolean {
+  if (bloque.type !== "table") return false;
+  const t = (bloque.rows[0]?.cells[0] ?? "").toUpperCase();
+  const lp = /\bLP\b/.test(t);
+  const cp = /\bCP\b/.test(t);
+  switch (kind) {
+    case "activos_lp":
+      return lp && /INSTRUMENTOS|CR[EÉ]DITOS|DERIVADOS/.test(t);
+    case "activos_cp":
+      return cp && /CR[EÉ]DITOS|DERIVADOS/.test(t);
+    case "pasivos_lp":
+      return lp && /DEUDAS|DERIVADOS/.test(t);
+    case "pasivos_cp":
+      return cp && /DEUDAS|DERIVADOS/.test(t);
+    default:
+      return false;
+  }
+}
+
+function totalMatchesKind(bloque: MemoriaBloque, kind: ResumenFinKind): boolean {
+  if (bloque.type !== "table") return false;
+  const t = (bloque.rows[0]?.cells[0] ?? "").toUpperCase();
+  switch (kind) {
+    case "activos_lp":
+      return /TOTAL ACTIVOS FINANCIEROS LP/.test(t);
+    case "activos_cp":
+      return /TOTAL ACTIVOS FINANCIEROS CP/.test(t);
+    case "pasivos_lp":
+      return /TOTAL PASIVOS FINANCIEROS LP/.test(t);
+    case "pasivos_cp":
+      return /TOTAL PASIVOS FINANCIEROS CP/.test(t);
+    default:
+      return false;
+  }
+}
+
+/**
+ * Repara intros de resumen ("El importe total de…") mal ubicados por Word binario:
+ * entre tablas de detalle o antes de ellas en lugar de después.
+ */
+export function reubicarIntrosResumenFinancieros(bloques: MemoriaBloque[]): MemoriaBloque[] {
+  const out: MemoriaBloque[] = [];
+  const skip = new Set<number>();
+
+  for (let i = 0; i < bloques.length; i++) {
+    if (skip.has(i)) continue;
+    const b = bloques[i]!;
+
+    if (b.type !== "text" || !textoEsIntroResumenSeccion(b.content)) {
+      out.push(b);
+      continue;
+    }
+
+    const kind = kindResumenIntro(b.content);
+    if (!kind) {
+      out.push(b);
+      continue;
+    }
+
+    const prev = out[out.length - 1];
+    const next = bloques[i + 1];
+    const prevEsDetalle =
+      prev?.type === "table" && esTablaDetalleFinanciera(prev) && detalleMatchesKind(prev, kind);
+    const nextEsDetalle =
+      next?.type === "table" && esTablaDetalleFinanciera(next) && detalleMatchesKind(next, kind);
+
+    if (prevEsDetalle && nextEsDetalle) {
+      const details: MemoriaBloque[] = [];
+      let j = i + 1;
+      while (
+        j < bloques.length &&
+        bloques[j]?.type === "table" &&
+        esTablaDetalleFinanciera(bloques[j]!) &&
+        detalleMatchesKind(bloques[j]!, kind)
+      ) {
+        details.push(bloques[j]!);
+        skip.add(j);
+        j++;
+      }
+      out.push(...details, b);
+      continue;
+    }
+
+    if (nextEsDetalle) {
+      const details: MemoriaBloque[] = [];
+      let j = i + 1;
+      while (
+        j < bloques.length &&
+        bloques[j]?.type === "table" &&
+        esTablaDetalleFinanciera(bloques[j]!) &&
+        detalleMatchesKind(bloques[j]!, kind)
+      ) {
+        details.push(bloques[j]!);
+        skip.add(j);
+        j++;
+      }
+      out.push(...details, b);
+      continue;
+    }
+
+    out.push(b);
+  }
+
+  return out;
+}
+
+/** Coloca la tabla TOTAL inmediatamente después de su intro de resumen. */
+export function reubicarTablaTotalFinanciera(bloques: MemoriaBloque[]): MemoriaBloque[] {
+  const result = [...bloques];
+
+  for (let i = 0; i < result.length; i++) {
+    const b = result[i];
+    if (b?.type !== "text" || !textoEsIntroResumenSeccion(b.content)) continue;
+    const kind = kindResumenIntro(b.content);
+    if (!kind) continue;
+
+    const next = result[i + 1];
+    if (next?.type === "table" && esTablaTotalFinanciera(next) && totalMatchesKind(next, kind)) {
+      continue;
+    }
+
+    for (let j = i + 2; j < result.length; j++) {
+      const blk = result[j];
+      if (blk?.type === "text" && textoEsIntroResumenSeccion(blk.content)) break;
+      if (blk?.type === "table" && esTablaTotalFinanciera(blk) && totalMatchesKind(blk, kind)) {
+        const [total] = result.splice(j, 1);
+        result.splice(i + 1, 0, total!);
+        break;
+      }
+    }
+  }
+
+  return result;
 }
 
 /** Serializa una lista de bloques a texto, separando cada bloque por una línea en blanco. */

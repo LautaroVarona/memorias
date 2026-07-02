@@ -112,17 +112,39 @@ const invertido = [
 ].join("\n");
 assertTextBeforeTable(invertido, "No ha habido movimientos", "reorden concesiones");
 
-// Word binario: cabecera titular, intro en medio, filas de datos (tabla partida)
-const introLP = "El importe total de los activos financieros a largo plazo es:";
+// Word binario: cabecera titular, intro de referencia en medio, filas de datos (tabla partida)
+const introRefLP = "A continuación se detalla el movimiento de los activos financieros a largo plazo:";
 const headerInst = "INSTRUMENTOS DE PATRIMONIO LP | IMPORTE 2025 | IMPORTE 2024";
 const filaDatos = "Saldo final | 1.234,56 | 1.000,00";
-const rawPartido = [headerInst, introLP, filaDatos].join("\n");
+const rawPartido = [headerInst, introRefLP, filaDatos].join("\n");
 const segsPartido = segmentMemoriaContent(rawPartido);
-assert.equal(segsPartido[0]?.type, "text", "intro LP antes de tabla");
-assert(segsPartido[0]?.type === "text" && segsPartido[0].content.includes("importe total"));
+assert.equal(segsPartido[0]?.type, "text", "intro de referencia antes de tabla");
+assert(segsPartido[0]?.type === "text" && segsPartido[0].content.includes("A continuación"));
 assert.equal(segsPartido[1]?.type, "table", "tabla fusionada tras intro");
 if (segsPartido[1]?.type === "table") {
   assert(segsPartido[1].rows.length >= 2, "tabla con cabecera y al menos una fila de datos");
 }
 
-console.log("OK: segment order tests passed (" + (casos.length + 2) + " casos)");
+// Activos financieros LP: intro de resumen va después de tablas de detalle, no antes
+const introResumenLP = "El importe total de los activos financieros a largo plazo es:";
+const hCred = "CRÉDITOS, DERIVADOS Y OTROS LP | IMPORTE 2025 | IMPORTE 2024";
+const hTotal = "TOTAL ACTIVOS FINANCIEROS LP | IMPORTE 2025 | IMPORTE 2024";
+const activosDesorden = [
+  introRefLP,
+  headerInst,
+  filaDatos,
+  hCred,
+  filaDatos,
+  introResumenLP,
+  hTotal,
+  filaDatos,
+].join("\n\n");
+const segsActivos = segmentMemoriaContent(activosDesorden);
+assert.equal(segsActivos[0]?.type, "text", "intro narrativo al inicio");
+assert.equal(segsActivos[1]?.type, "table", "instrumentos LP");
+assert.equal(segsActivos[2]?.type, "table", "créditos LP");
+assert.equal(segsActivos[3]?.type, "text", "resumen LP tras detalle");
+assert(segsActivos[3]?.type === "text" && segsActivos[3].content.includes("importe total"));
+assert.equal(segsActivos[4]?.type, "table", "total LP");
+
+console.log("OK: segment order tests passed (" + (casos.length + 3) + " casos)");

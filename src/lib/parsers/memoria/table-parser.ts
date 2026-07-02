@@ -205,7 +205,6 @@ export function pareceTextoIntroductorioTabla(linea: string): boolean {
   ) {
     return true;
   }
-  if (/\bel importe total\b/i.test(t)) return true;
   if (/\b(son|es)\s+los?\s+siguientes?\b/i.test(t)) return true;
   if (/\bactivos financieros\b/i.test(t) && /:\s*$/.test(t)) return true;
   if (/\.\s*$/.test(t) && t.length >= 25) return true;
@@ -213,6 +212,22 @@ export function pareceTextoIntroductorioTabla(linea: string): boolean {
     return true;
   }
   return false;
+}
+
+/** Párrafo de cierre de sección que precede a la tabla TOTAL (va tras tablas de detalle). */
+export function pareceIntroResumenTabla(linea: string): boolean {
+  const t = limpiarValorCelda(linea);
+  return /\bel importe total de (los|las)\b/i.test(t);
+}
+
+/**
+ * Intro narrativo que debe ir ANTES de la tabla siguiente (no un resumen de sección).
+ * Solo estos se reubican cuando Word los emite después de la tabla.
+ */
+export function pareceIntroReferenciaTabla(linea: string): boolean {
+  const t = limpiarValorCelda(linea);
+  if (!t || pareceIntroResumenTabla(t)) return false;
+  return pareceTextoIntroductorioTabla(t);
 }
 
 /**
@@ -284,7 +299,7 @@ export function tablaSoloTieneCabecera(tabla: string[][]): boolean {
 export function introInterrumpeCabeceraTabla(linea: string, tabla: string[][]): boolean {
   const t = limpiarValorCelda(linea);
   if (!t || tabla.length === 0) return false;
-  return pareceTextoIntroductorioTabla(t) && tablaSoloTieneCabecera(tabla);
+  return pareceIntroReferenciaTabla(t) && tablaSoloTieneCabecera(tabla);
 }
 
 /** Segunda parte de una tabla partida (cabecera titular + filas de datos separadas). */
